@@ -6,6 +6,7 @@ local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
+local TextService = game:GetService("TextService")
 
 local function getDefaultParent()
     if RunService:IsStudio() then
@@ -1024,6 +1025,113 @@ function SynergyUI:CreateWindow(options)
                 function(v) r, g, b = v[1], v[2], v[3]; update() end, 
                 function(c) end
             )
+        end
+
+        function elements:CreateSection(name)
+            local section = Instance.new("TextLabel")
+            section.Parent = scrollFrame
+            section.BackgroundTransparency = 1
+            section.Size = UDim2.new(1, 0, 0, 25)
+            section.Font = window.Theme.Font
+            section.Text = name
+            section.TextColor3 = window.Theme.Text
+            section.TextSize = 14
+            section.TextXAlignment = Enum.TextXAlignment.Left
+            section.TextYAlignment = Enum.TextYAlignment.Center
+            registerControl("section_"..HttpService:GenerateGUID(false), nil, nil, function(c) end)
+        end
+
+        function elements:CreateParagraph(opts)
+            local title = opts.Title or ""
+            local content = opts.Content or ""
+            local imageUrl = opts.Image
+
+            local frame = Instance.new("Frame")
+            frame.Parent = scrollFrame
+            frame.BackgroundColor3 = window.Theme.Element
+            frame.BorderSizePixel = 0
+            frame.Size = UDim2.new(1, 0, 0, 0)
+            addCorner(frame, 4)
+
+            local imageLabel = nil
+            local textContainer = nil
+
+            if imageUrl and imageUrl ~= "" then
+                imageLabel = Instance.new("ImageLabel")
+                imageLabel.Parent = frame
+                imageLabel.BackgroundColor3 = window.Theme.ElementDark
+                imageLabel.Position = UDim2.new(0, 8, 0, 8)
+                imageLabel.Size = UDim2.new(0, 50, 0, 50)
+                imageLabel.Image = imageUrl
+                imageLabel.ScaleType = Enum.ScaleType.Fit
+                addCorner(imageLabel, 4)
+
+                textContainer = Instance.new("Frame")
+                textContainer.Parent = frame
+                textContainer.BackgroundTransparency = 1
+                textContainer.Position = UDim2.new(0, 66, 0, 8)
+                textContainer.Size = UDim2.new(1, -74, 0, 0)
+            else
+                textContainer = Instance.new("Frame")
+                textContainer.Parent = frame
+                textContainer.BackgroundTransparency = 1
+                textContainer.Position = UDim2.new(0, 8, 0, 8)
+                textContainer.Size = UDim2.new(1, -16, 0, 0)
+            end
+
+            local titleLabel = Instance.new("TextLabel")
+            titleLabel.Parent = textContainer
+            titleLabel.BackgroundTransparency = 1
+            titleLabel.Size = UDim2.new(1, 0, 0, 0)
+            titleLabel.Font = window.Theme.Font
+            titleLabel.Text = title
+            titleLabel.TextColor3 = window.Theme.Accent
+            titleLabel.TextSize = 14
+            titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+            titleLabel.TextYAlignment = Enum.TextYAlignment.Top
+            titleLabel.TextWrapped = true
+
+            local contentLabel = Instance.new("TextLabel")
+            contentLabel.Parent = textContainer
+            contentLabel.BackgroundTransparency = 1
+            contentLabel.Position = UDim2.new(0, 0, 0, 0)
+            contentLabel.Size = UDim2.new(1, 0, 0, 0)
+            contentLabel.Font = window.Theme.Font
+            contentLabel.Text = content
+            contentLabel.TextColor3 = window.Theme.TextMuted
+            contentLabel.TextSize = 12
+            contentLabel.TextXAlignment = Enum.TextXAlignment.Left
+            contentLabel.TextYAlignment = Enum.TextYAlignment.Top
+            contentLabel.TextWrapped = true
+
+            local function updateSize()
+                local titleHeight = 0
+                local contentHeight = 0
+                if title ~= "" then
+                    titleHeight = TextService:GetTextSize(title, 14, window.Theme.Font, Vector2.new(textContainer.AbsoluteSize.X, 1000)).Y
+                end
+                if content ~= "" then
+                    contentHeight = TextService:GetTextSize(content, 12, window.Theme.Font, Vector2.new(textContainer.AbsoluteSize.X, 1000)).Y
+                end
+                local totalTextHeight = titleHeight + contentHeight + 8
+                if imageUrl and imageUrl ~= "" then
+                    totalTextHeight = math.max(totalTextHeight, 58)
+                end
+                titleLabel.Size = UDim2.new(1, 0, 0, titleHeight)
+                contentLabel.Position = UDim2.new(0, 0, 0, titleHeight + 4)
+                contentLabel.Size = UDim2.new(1, 0, 0, contentHeight)
+                textContainer.Size = UDim2.new(1, textContainer.Size.X.Offset, 0, totalTextHeight)
+                frame.Size = UDim2.new(1, 0, 0, totalTextHeight + 16)
+            end
+
+            frame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSize)
+            titleLabel:GetPropertyChangedSignal("Text"):Connect(updateSize)
+            contentLabel:GetPropertyChangedSignal("Text"):Connect(updateSize)
+            if textContainer then
+                textContainer:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateSize)
+            end
+            updateSize()
+            registerControl("paragraph_"..HttpService:GenerateGUID(false), nil, nil, function(c) end)
         end
 
         return elements
