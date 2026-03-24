@@ -37,7 +37,7 @@ local function createToast(message, duration, typeColor)
     gui.Name = "SynergyToast_" .. HttpService:GenerateGUID(false)
     gui.Parent = getDefaultParent()
     gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- CORREGIDO: Antes era Global
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.IgnoreGuiInset = true
 
     local frame = Instance.new("Frame")
@@ -109,7 +109,7 @@ function SynergyUI:CreateWindow(options)
     gui.Name = "SynergyUI_" .. HttpService:GenerateGUID(false)
     gui.Parent = options.Parent or getDefaultParent()
     gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling -- CORREGIDO: Esto arregla Tabs y Dropdowns invisibles
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.IgnoreGuiInset = true
     window.Gui = gui
 
@@ -740,6 +740,193 @@ function SynergyUI:CreateWindow(options)
             )
 
             return {SetOptions = function(_, newOpts) opts.Options = newOpts; build(newOpts) end}
+        end
+
+        function elements:CreateChecklist(opts)
+            local options = opts.Options or {}
+            local selected = {}
+            if opts.CurrentSelected then
+                for _, v in ipairs(opts.CurrentSelected) do
+                    selected[v] = true
+                end
+            end
+            local flag = opts.Flag or opts.Name
+
+            local frame = Instance.new("Frame")
+            frame.Parent = scrollFrame
+            frame.BackgroundColor3 = window.Theme.Element
+            frame.Size = UDim2.new(1, 0, 0, 35)
+            frame.ClipsDescendants = true
+            addCorner(frame, 4)
+
+            local btn = Instance.new("TextButton")
+            btn.Parent = frame
+            btn.BackgroundTransparency = 1
+            btn.Position = UDim2.new(0, 10, 0, 0)
+            btn.Size = UDim2.new(1, -20, 0, 35)
+            btn.Font = window.Theme.Font
+            btn.Text = opts.Name
+            btn.TextColor3 = window.Theme.Text
+            btn.TextSize = 13
+            btn.TextXAlignment = Enum.TextXAlignment.Left
+
+            local countLabel = Instance.new("TextLabel")
+            countLabel.Parent = btn
+            countLabel.BackgroundTransparency = 1
+            countLabel.Position = UDim2.new(1, -60, 0, 0)
+            countLabel.Size = UDim2.new(0, 50, 1, 0)
+            countLabel.Font = window.Theme.Font
+            countLabel.Text = "0 selected"
+            countLabel.TextColor3 = window.Theme.Accent
+            countLabel.TextSize = 12
+            countLabel.TextXAlignment = Enum.TextXAlignment.Right
+
+            local icon = Instance.new("TextLabel")
+            icon.Parent = btn
+            icon.BackgroundTransparency = 1
+            icon.Position = UDim2.new(1, -20, 0, 0)
+            icon.Size = UDim2.new(0, 20, 1, 0)
+            icon.Font = window.Theme.Font
+            icon.Text = "+"
+            icon.TextColor3 = window.Theme.TextMuted
+            icon.TextSize = 14
+
+            local container = Instance.new("ScrollingFrame")
+            container.Parent = frame
+            container.BackgroundColor3 = window.Theme.ElementDark
+            container.BorderSizePixel = 0
+            container.Position = UDim2.new(0, 0, 0, 35)
+            container.Size = UDim2.new(1, 0, 1, -35)
+            container.ScrollBarThickness = 2
+            container.ScrollBarImageColor3 = window.Theme.Accent
+
+            local layout = Instance.new("UIListLayout")
+            layout.Parent = container
+            layout.SortOrder = Enum.SortOrder.LayoutOrder
+
+            local function updateSelectedCount()
+                local count = 0
+                for _, v in pairs(selected) do if v then count = count + 1 end end
+                countLabel.Text = count .. " selected"
+                pcall(opts.Callback, selected)
+                saveConfig()
+            end
+
+            local function build(optionsList)
+                for _, c in ipairs(container:GetChildren()) do
+                    if c:IsA("Frame") then c:Destroy() end
+                end
+                for _, opt in ipairs(optionsList) do
+                    local row = Instance.new("Frame")
+                    row.Parent = container
+                    row.BackgroundColor3 = window.Theme.ElementDark
+                    row.BorderSizePixel = 0
+                    row.Size = UDim2.new(1, 0, 0, 30)
+
+                    local outer = Instance.new("Frame")
+                    outer.Parent = row
+                    outer.BackgroundColor3 = window.Theme.Element
+                    outer.Position = UDim2.new(0, 10, 0.5, -10)
+                    outer.Size = UDim2.new(0, 30, 0, 20)
+                    addCorner(outer, 20)
+
+                    local inner = Instance.new("Frame")
+                    inner.Parent = outer
+                    inner.BackgroundColor3 = selected[opt] and window.Theme.Accent or window.Theme.TextMuted
+                    inner.Position = selected[opt] and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2)
+                    inner.Size = UDim2.new(0, 16, 0, 16)
+                    addCorner(inner, 16)
+
+                    local optLabel = Instance.new("TextLabel")
+                    optLabel.Parent = row
+                    optLabel.BackgroundTransparency = 1
+                    optLabel.Position = UDim2.new(0, 45, 0, 0)
+                    optLabel.Size = UDim2.new(1, -55, 1, 0)
+                    optLabel.Font = window.Theme.Font
+                    optLabel.Text = opt
+                    optLabel.TextColor3 = window.Theme.TextMuted
+                    optLabel.TextSize = 12
+                    optLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+                    local btn = Instance.new("TextButton")
+                    btn.Parent = row
+                    btn.BackgroundTransparency = 1
+                    btn.Size = UDim2.new(1, 0, 1, 0)
+                    btn.Text = ""
+
+                    addConnection(btn.MouseButton1Click:Connect(function()
+                        selected[opt] = not selected[opt]
+                        createTween(inner, 0.2, {
+                            Position = selected[opt] and UDim2.new(0, 12, 0, 2) or UDim2.new(0, 2, 0, 2),
+                            BackgroundColor3 = selected[opt] and window.Theme.Accent or window.Theme.TextMuted
+                        })
+                        updateSelectedCount()
+                    end))
+                end
+                container.CanvasSize = UDim2.new(0, 0, 0, #optionsList * 30)
+                updateSelectedCount()
+            end
+            build(options)
+
+            local isOpen = false
+            addConnection(btn.MouseButton1Click:Connect(function()
+                isOpen = not isOpen
+                if isOpen then
+                    local target = math.min(35 + (#options * 30), 165)
+                    createTween(frame, 0.2, {Size = UDim2.new(1, 0, 0, target)})
+                    icon.Text = "-"
+                    frame.ZIndex = 5
+                else
+                    createTween(frame, 0.2, {Size = UDim2.new(1, 0, 0, 35)})
+                    icon.Text = "+"
+                    frame.ZIndex = 1
+                end
+            end))
+
+            local function getSelectedTable()
+                local result = {}
+                for k, v in pairs(selected) do if v then table.insert(result, k) end end
+                return result
+            end
+
+            local function setSelectedTable(tbl)
+                for _, v in ipairs(options) do selected[v] = false end
+                for _, v in ipairs(tbl) do
+                    if selected[v] ~= nil then selected[v] = true end
+                end
+                build(options)
+            end
+
+            registerControl(flag, 
+                function() return getSelectedTable() end,
+                function(v) setSelectedTable(v) end,
+                function(c) 
+                    container.ScrollBarImageColor3 = c
+                    for _, row in ipairs(container:GetChildren()) do
+                        if row:IsA("Frame") then
+                            local inner = row:FindFirstChild("Outer") and row.Outer:FindFirstChild("Inner")
+                            if inner and selected[row.Text] then
+                                inner.BackgroundColor3 = c
+                            end
+                        end
+                    end
+                    countLabel.TextColor3 = c
+                end
+            )
+
+            return {
+                SetOptions = function(_, newOpts)
+                    options = newOpts
+                    local newSelected = {}
+                    for _, v in ipairs(options) do
+                        if selected[v] then newSelected[v] = true end
+                    end
+                    selected = newSelected
+                    build(options)
+                end,
+                GetSelected = function() return getSelectedTable() end,
+                SetSelected = function(_, tbl) setSelectedTable(tbl) end
+            }
         end
 
         function elements:CreateTextInput(opts)
