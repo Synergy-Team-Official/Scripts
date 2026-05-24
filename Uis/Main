@@ -926,6 +926,14 @@ local Library = {
         return Library:CopyTheme(Library.Theme)
     end
 
+    Library.NormalizeUnitInterval = function(Self, Value, Default)
+        if type(Value) ~= "number" then
+            return Default
+        end
+
+        return math.clamp(Value, 0, 1)
+    end
+
     Library.GetResponsiveWindowSize = function(Self, RequestedSize)
         local BaseSize
 
@@ -1913,8 +1921,55 @@ local Library = {
             local BackgroundScaleType = Library:ResolveScaleType(
                 Params.BackgroundMode or Params.backgroundmode or
                 Params.BackgroundScaleType or Params.backgroundscaletype or
-                "Tile"
+                "Stretch"
             )
+
+            local SideBackgroundScaleType = Library:ResolveScaleType(
+                Params.SideBackgroundMode or Params.sidebackgroundmode or
+                Params.TabsBackgroundMode or Params.tabsbackgroundmode or
+                Params.SideBackgroundScaleType or Params.sidebackgroundscaletype or
+                Params.TabsBackgroundScaleType or Params.tabsbackgroundscaletype or
+                "Stretch"
+            )
+
+            local BackgroundStrength = Library:NormalizeUnitInterval(
+                Params.BackgroundStrength or Params.backgroundstrength or
+                Params.BackgroundVisibility or Params.backgroundvisibility,
+                0.68
+            )
+
+            local TabsBackgroundStrength = Library:NormalizeUnitInterval(
+                Params.TabsBackgroundStrength or Params.tabsbackgroundstrength or
+                Params.SideBackgroundStrength or Params.sidebackgroundstrength,
+                math.clamp(BackgroundStrength - 0.14, 0, 1)
+            )
+
+            local ContentBackgroundTransparency = Params.BackgroundTransparency or Params.backgroundtransparency or (0.82 - (0.72 * BackgroundStrength))
+            local ContentBackgroundShadeTransparency = Params.BackgroundShadeTransparency or Params.backgroundshadetransparency or (0.72 + (0.25 * BackgroundStrength))
+            local ContentBackgroundColor = Params.BackgroundColor or Params.backgroundcolor or Color3.fromRGB(255, 255, 255)
+
+            local SideBackgroundTransparency = Params.SideBackgroundTransparency or Params.sidebackgroundtransparency or Params.TabsBackgroundTransparency or Params.tabsbackgroundtransparency or (0.88 - (0.55 * TabsBackgroundStrength))
+            local SideBackgroundShadeTransparency = Params.SideBackgroundShadeTransparency or Params.sidebackgroundshadetransparency or Params.TabsBackgroundShadeTransparency or Params.tabsbackgroundshadetransparency or (0.62 + (0.25 * TabsBackgroundStrength))
+            local SideBackgroundColor = Params.SideBackgroundColor or Params.sidebackgroundcolor or Params.TabsBackgroundColor or Params.tabsbackgroundcolor or ContentBackgroundColor
+            local GridEnabled = Params.ShowGrid
+
+            if GridEnabled == nil then
+                GridEnabled = Params.showgrid
+            end
+
+            if GridEnabled == nil then
+                GridEnabled = Params.BackgroundGrid
+            end
+
+            if GridEnabled == nil then
+                GridEnabled = Params.backgroundgrid
+            end
+
+            if GridEnabled == nil then
+                GridEnabled = true
+            end
+
+            local GridTransparency = Params.GridTransparency or Params.gridtransparency or 0.83
 
             local BackgroundTileSize = Params.BackgroundTileSize or Params.backgroundtilesize or (IsMobile and 52 or 42)
             if type(BackgroundTileSize) == "number" then
@@ -2080,6 +2135,29 @@ local Library = {
                     Size = UDim2.new(0, SideWidth, 1, 0),
                     BorderSizePixel = 0
                 })
+
+                Items["SideBackgroundArt"] = Library:Create("ImageLabel", {
+                    Name = "\0",
+                    Parent = Items["Side"].Instance,
+                    Visible = false,
+                    Image = BackgroundImage,
+                    ImageTransparency = SideBackgroundTransparency,
+                    ImageColor3 = SideBackgroundColor,
+                    ScaleType = SideBackgroundScaleType,
+                    TileSize = BackgroundTileSize,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BorderSizePixel = 0,
+                    BackgroundTransparency = 1
+                })
+
+                Items["SideBackgroundShade"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["Side"].Instance,
+                    Size = UDim2.new(1, 0, 1, 0),
+                    BorderSizePixel = 0,
+                    BackgroundColor3 = Library.Theme["Background"],
+                    BackgroundTransparency = SideBackgroundShadeTransparency
+                }):AddToTheme({BackgroundColor3 = "Background"})
                 
                 Library:Create("Frame", {
                     Name = "\0",
@@ -2120,21 +2198,6 @@ local Library = {
                     ZIndex = 2,
                     BorderSizePixel = 0
                 }):AddToTheme({ImageColor3 = "TextPrimary"})
-
-                Items["Glow"] = Library:Create("ImageLabel", {
-                    Name = "\0",
-                    Parent = Items["Icon"].Instance,
-                    ImageColor3 = Library.Theme["TextPrimary"],
-                    ScaleType = Enum.ScaleType.Slice,
-                    ImageTransparency = 0.5,
-                    Size = UDim2.new(1, 24, 1, 24),
-                    AnchorPoint = Vector2.new(0.5, 0.5),
-                    Image = "http://www.roblox.com/asset/?id=18245826428",
-                    BackgroundTransparency = 1,
-                    Position = UDim2.new(0.5, 0, 0.5, 0),
-                    BorderSizePixel = 0,
-                    SliceCenter = Rect.new(Vector2.new(21, 21), Vector2.new(79, 79))
-                }):AddToTheme({ImageColor3 = "Accent"})
 
                 Items["Title"] = Library:Create("TextLabel", {
                     Name = "\0",
@@ -2203,13 +2266,15 @@ local Library = {
 
                 Items["BackgroundArt"] = Library:Create("ImageLabel", {
                     Name = "\0",
-                    Parent = Items["Content"].Instance,
+                    Parent = Items["MainFrame"].Instance,
                     Image = BackgroundImage,
-                    ImageTransparency = Params.BackgroundTransparency or Params.backgroundtransparency or 0.88,
-                    ImageColor3 = Params.BackgroundColor or Params.backgroundcolor or Color3.fromRGB(255, 255, 255),
+                    ImageTransparency = ContentBackgroundTransparency,
+                    ImageColor3 = ContentBackgroundColor,
                     ScaleType = BackgroundScaleType,
                     TileSize = BackgroundTileSize,
+                    Position = UDim2.new(0, 0, 0, 0),
                     Size = UDim2.new(1, 0, 1, 0),
+                    ZIndex = 0,
                     BorderSizePixel = 0,
                     BackgroundTransparency = 1
                 })
@@ -2220,17 +2285,18 @@ local Library = {
                     Size = UDim2.new(1, 0, 1, 0),
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Background"],
-                    BackgroundTransparency = 0.2
+                    BackgroundTransparency = ContentBackgroundShadeTransparency
                 }):AddToTheme({BackgroundColor3 = "Background"})
                 
                 Items["Grid"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Content"].Instance,
+                    Visible = GridEnabled,
                     ImageColor3 = Library.Theme["Border"],
                     ScaleType = Enum.ScaleType.Tile,
                     Image = "rbxassetid://100072076855987",
                     BackgroundTransparency = 1,
-                    ImageTransparency = 0.83,
+                    ImageTransparency = GridTransparency,
                     Size = UDim2.new(1, 0, 1, 0),
                     TileSize = UDim2.new(0, 36, 0, 36),
                     BorderSizePixel = 0
@@ -2407,9 +2473,26 @@ local Library = {
             function Window:SetBackground(BackgroundData)
                 local Data = type(BackgroundData) == "table" and BackgroundData or {Image = BackgroundData}
                 local Asset = Library:NormalizeAsset(Data.Image or Data.Asset or Data.Id or Data.Background)
+                local Strength = Library:NormalizeUnitInterval(Data.Strength or Data.BackgroundStrength or Data.Visibility or Data.BackgroundVisibility, nil)
+                local SideStrength = Library:NormalizeUnitInterval(Data.SideStrength or Data.TabsStrength or Data.TabsBackgroundStrength or Data.SideBackgroundStrength, nil)
 
                 if Asset then
                     Items["BackgroundArt"].Instance.Image = Asset
+                    Items["SideBackgroundArt"].Instance.Image = Asset
+                end
+
+                if Strength ~= nil then
+                    Items["BackgroundArt"].Instance.ImageTransparency = 0.82 - (0.72 * Strength)
+                    Items["BackgroundShade"].Instance.BackgroundTransparency = 0.72 + (0.25 * Strength)
+                end
+
+                if SideStrength ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = 0.88 - (0.55 * SideStrength)
+                    Items["SideBackgroundShade"].Instance.BackgroundTransparency = 0.62 + (0.25 * SideStrength)
+                elseif Strength ~= nil then
+                    local AutoSideStrength = math.clamp(Strength - 0.14, 0, 1)
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = 0.88 - (0.55 * AutoSideStrength)
+                    Items["SideBackgroundShade"].Instance.BackgroundTransparency = 0.62 + (0.25 * AutoSideStrength)
                 end
 
                 if Data.Transparency ~= nil then
@@ -2418,17 +2501,62 @@ local Library = {
                     Items["BackgroundArt"].Instance.ImageTransparency = Data.ImageTransparency
                 end
 
+                if Data.ContentTransparency ~= nil then
+                    Items["BackgroundArt"].Instance.ImageTransparency = Data.ContentTransparency
+                elseif Data.ContentImageTransparency ~= nil then
+                    Items["BackgroundArt"].Instance.ImageTransparency = Data.ContentImageTransparency
+                end
+
+                if Data.SideTransparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = Data.SideTransparency
+                elseif Data.SideImageTransparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = Data.SideImageTransparency
+                elseif Data.TabsTransparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = Data.TabsTransparency
+                elseif Data.TabsImageTransparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = Data.TabsImageTransparency
+                elseif Data.Transparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = math.clamp(Data.Transparency + 0.08, 0, 0.95)
+                elseif Data.ImageTransparency ~= nil then
+                    Items["SideBackgroundArt"].Instance.ImageTransparency = math.clamp(Data.ImageTransparency + 0.08, 0, 0.95)
+                end
+
                 if Data.Color then
                     Items["BackgroundArt"].Instance.ImageColor3 = Data.Color
+                    Items["SideBackgroundArt"].Instance.ImageColor3 = Data.Color
+                end
+
+                if Data.ContentColor then
+                    Items["BackgroundArt"].Instance.ImageColor3 = Data.ContentColor
+                elseif Data.ContentImageColor then
+                    Items["BackgroundArt"].Instance.ImageColor3 = Data.ContentImageColor
+                end
+
+                if Data.SideColor then
+                    Items["SideBackgroundArt"].Instance.ImageColor3 = Data.SideColor
+                elseif Data.SideImageColor then
+                    Items["SideBackgroundArt"].Instance.ImageColor3 = Data.SideImageColor
+                elseif Data.TabsColor then
+                    Items["SideBackgroundArt"].Instance.ImageColor3 = Data.TabsColor
+                elseif Data.TabsImageColor then
+                    Items["SideBackgroundArt"].Instance.ImageColor3 = Data.TabsImageColor
                 end
 
                 if Data.Rotation ~= nil then
                     Items["BackgroundArt"].Instance.Rotation = Data.Rotation
+                    Items["SideBackgroundArt"].Instance.Rotation = Data.Rotation
                 end
 
                 local NewScaleType = Data.ScaleType or Data.Mode
                 if NewScaleType ~= nil then
                     Items["BackgroundArt"].Instance.ScaleType = Library:ResolveScaleType(NewScaleType)
+                end
+
+                local NewSideScaleType = Data.SideScaleType or Data.SideMode or Data.TabsScaleType or Data.TabsMode
+                if NewSideScaleType ~= nil then
+                    Items["SideBackgroundArt"].Instance.ScaleType = Library:ResolveScaleType(NewSideScaleType)
+                elseif NewScaleType ~= nil then
+                    Items["SideBackgroundArt"].Instance.ScaleType = Library:ResolveScaleType("Crop")
                 end
 
                 local NewTileSize = Data.TileSize
@@ -2438,6 +2566,57 @@ local Library = {
 
                 if typeof(NewTileSize) == "UDim2" then
                     Items["BackgroundArt"].Instance.TileSize = NewTileSize
+                    Items["SideBackgroundArt"].Instance.TileSize = NewTileSize
+                end
+
+                local NewGridState = Data.ShowGrid
+                if NewGridState == nil then
+                    NewGridState = Data.BackgroundGrid
+                end
+
+                if NewGridState == nil then
+                    NewGridState = Data.GridEnabled
+                end
+
+                if type(NewGridState) == "boolean" then
+                    Items["Grid"].Instance.Visible = NewGridState
+                end
+
+                if Data.GridTransparency ~= nil then
+                    Items["Grid"].Instance.ImageTransparency = Data.GridTransparency
+                end
+
+                if Data.ShadeTransparency ~= nil then
+                    Items["BackgroundShade"].Instance.BackgroundTransparency = Data.ShadeTransparency
+                end
+
+                if Data.ContentShadeTransparency ~= nil then
+                    Items["BackgroundShade"].Instance.BackgroundTransparency = Data.ContentShadeTransparency
+                end
+
+                if Data.SideShadeTransparency ~= nil then
+                    Items["SideBackgroundShade"].Instance.BackgroundTransparency = Data.SideShadeTransparency
+                elseif Data.TabsShadeTransparency ~= nil then
+                    Items["SideBackgroundShade"].Instance.BackgroundTransparency = Data.TabsShadeTransparency
+                elseif Data.ShadeTransparency ~= nil then
+                    Items["SideBackgroundShade"].Instance.BackgroundTransparency = math.clamp(Data.ShadeTransparency + 0.16, 0, 1)
+                end
+            end
+
+            function Window:SetBackgroundStrength(Strength, TabsStrength)
+                return Window:SetBackground({
+                    Strength = Strength,
+                    TabsStrength = TabsStrength
+                })
+            end
+
+            function Window:SetGrid(Bool, Transparency)
+                if type(Bool) == "boolean" then
+                    Items["Grid"].Instance.Visible = Bool
+                end
+
+                if Transparency ~= nil then
+                    Items["Grid"].Instance.ImageTransparency = Transparency
                 end
             end
 
@@ -2535,9 +2714,16 @@ local Library = {
             Window:Center()
             Window:SetBackground({
                 Image = BackgroundImage,
-                Transparency = Params.BackgroundTransparency or Params.backgroundtransparency or 0.88,
-                Color = Params.BackgroundColor or Params.backgroundcolor,
+                Strength = BackgroundStrength,
+                TabsStrength = TabsBackgroundStrength,
+                ContentTransparency = ContentBackgroundTransparency,
+                SideTransparency = SideBackgroundTransparency,
+                ContentShadeTransparency = ContentBackgroundShadeTransparency,
+                SideShadeTransparency = SideBackgroundShadeTransparency,
+                ContentColor = ContentBackgroundColor,
+                SideColor = SideBackgroundColor,
                 ScaleType = BackgroundScaleType,
+                SideScaleType = SideBackgroundScaleType,
                 TileSize = BackgroundTileSize,
                 Rotation = Params.BackgroundRotation or Params.backgroundrotation
             })
@@ -2567,9 +2753,15 @@ local Library = {
                     Size = UDim2.new(1, 0, 0, 0),
                     BorderSizePixel = 0,
                     AutomaticSize = Enum.AutomaticSize.Y,
-                    BackgroundColor3 = Library.Theme["Background"]
+                    BackgroundColor3 = Library.Theme["Accent 2"]
                 })
-                
+
+                Library:Create("UICorner", {
+                    Name = "\0",
+                    Parent = Items["Inactive"].Instance,
+                    CornerRadius = UDim.new(0, 8)
+                })
+
                 Library:Create("UIPadding", {
                     Name = "\0",
                     Parent = Items["Inactive"].Instance,
@@ -2665,10 +2857,19 @@ local Library = {
                 Page.Active = Bool 
 
                 if Bool then 
-                    Items["Inactive"]:Tween({BackgroundTransparency = 0})
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 0.88,
+                        BackgroundColor3 = Library.Theme["Accent 2"]
+                    })
+                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent 4"]})
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]})
+                    Items["ThreeDots"]:Tween({ImageColor3 = Library.Theme["Accent 3"]})
                     Items["SubPages"].Instance.Visible = true
                 else
                     Items["Inactive"]:Tween({BackgroundTransparency = 1})
+                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent"]})
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["TextPrimary"]})
+                    Items["ThreeDots"]:Tween({ImageColor3 = Color3.fromRGB(88, 90, 103)})
                     Items["SubPages"].Instance.Visible = false
                 end
 
@@ -2734,7 +2935,7 @@ local Library = {
                     Parent = Items["Inactive"].Instance,
                     CornerRadius = UDim.new(0, 5)
                 })
-                
+
                 Items["Icon"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Inactive"].Instance,
@@ -2862,13 +3063,16 @@ local Library = {
                 Page.Active = Bool 
 
                 if Bool then 
-                    Items["Inactive"]:Tween({BackgroundTransparency = 0})
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 0.9,
+                        BackgroundColor3 = Library.Theme["Accent 2"]
+                    })
                     
                     Items["Icon"]:ChangeItemTheme({ImageColor3 = "Accent 3"})
-                    Items["Text"]:ChangeItemTheme({ImageColor3 = "Accent 3"})
+                    Items["Text"]:ChangeItemTheme({TextColor3 = "Accent 3"})
 
-                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent 3"]})
-                    Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 3"]})
+                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent 4"]})
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]})
 
                     Library.CurrentPage = Page
 
@@ -2881,7 +3085,7 @@ local Library = {
                         return Color3.fromRGB(117, 117, 131)
                     end}) 
                     
-                    Items["Text"]:ChangeItemTheme({ImageColor3 = function()
+                    Items["Text"]:ChangeItemTheme({TextColor3 = function()
                         return Color3.fromRGB(117, 117, 131)
                     end}) 
 
