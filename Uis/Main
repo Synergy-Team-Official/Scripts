@@ -1921,7 +1921,7 @@ local Library = {
             local BackgroundScaleType = Library:ResolveScaleType(
                 Params.BackgroundMode or Params.backgroundmode or
                 Params.BackgroundScaleType or Params.backgroundscaletype or
-                "Stretch"
+                "Fit"
             )
 
             local SideBackgroundScaleType = Library:ResolveScaleType(
@@ -1929,7 +1929,7 @@ local Library = {
                 Params.TabsBackgroundMode or Params.tabsbackgroundmode or
                 Params.SideBackgroundScaleType or Params.sidebackgroundscaletype or
                 Params.TabsBackgroundScaleType or Params.tabsbackgroundscaletype or
-                "Stretch"
+                "Crop"
             )
 
             local BackgroundStrength = Library:NormalizeUnitInterval(
