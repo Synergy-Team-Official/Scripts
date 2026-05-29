@@ -401,6 +401,15 @@ local Library = {
             end
         end
 
+        if not NewTween then
+            if Callback and type(Callback) == "function" then
+                Callback()
+            end
+
+            Self.Instance.Visible = Visibility
+            return
+        end
+
         Library:Connect(NewTween.Completed, function()
             if Callback and type(Callback) == "function" then 
                 Callback()
@@ -946,8 +955,8 @@ local Library = {
         end
 
         local Viewport = (Camera and Camera.ViewportSize) or Vector2.new(1366, 768)
-        local WidthBoost = IsMobile and 1.08 or 1.03
-        local HeightBoost = IsMobile and 1.09 or 1.045
+        local WidthBoost = IsMobile and 1.05 or 1.01
+        local HeightBoost = IsMobile and 1.06 or 1.025
 
         local Width = math.floor((BaseSize.X * WidthBoost) + 0.5)
         local Height = math.floor((BaseSize.Y * HeightBoost) + 0.5)
@@ -955,8 +964,8 @@ local Library = {
         local MaxWidth = math.max(320, math.floor(Viewport.X * (IsMobile and 0.92 or 0.8)))
         local MaxHeight = math.max(260, math.floor(Viewport.Y * (IsMobile and 0.82 or 0.84)))
 
-        local MinWidth = math.min(IsMobile and 345 or 675, MaxWidth)
-        local MinHeight = math.min(IsMobile and 270 or 390, MaxHeight)
+        local MinWidth = math.min(IsMobile and 332 or 650, MaxWidth)
+        local MinHeight = math.min(IsMobile and 262 or 375, MaxHeight)
 
         Width = math.clamp(Width, MinWidth, MaxWidth)
         Height = math.clamp(Height, MinHeight, MaxHeight)
@@ -1921,7 +1930,7 @@ local Library = {
             local BackgroundScaleType = Library:ResolveScaleType(
                 Params.BackgroundMode or Params.backgroundmode or
                 Params.BackgroundScaleType or Params.backgroundscaletype or
-                "Fit"
+                "Stretch"
             )
 
             local SideBackgroundScaleType = Library:ResolveScaleType(
@@ -1929,7 +1938,7 @@ local Library = {
                 Params.TabsBackgroundMode or Params.tabsbackgroundmode or
                 Params.SideBackgroundScaleType or Params.sidebackgroundscaletype or
                 Params.TabsBackgroundScaleType or Params.tabsbackgroundscaletype or
-                "Crop"
+                "Stretch"
             )
 
             local BackgroundStrength = Library:NormalizeUnitInterval(
@@ -2105,6 +2114,7 @@ local Library = {
                     Name = "\0",
                     Parent = Items["MainFrame"].Instance,
                     Size = UDim2.new(1, 0, 0, 3),
+                    ClipsDescendants = true,
                     BorderSizePixel = 0,
                     BackgroundColor3 = Library.Theme["Accent"]
                 }):AddToTheme({BackgroundColor3 = "Accent"})
@@ -2126,6 +2136,54 @@ local Library = {
                             ColorSequenceKeypoint.new(1, Library.Theme["Accent"])
                         })
                     end
+                })
+
+                Items["TopAccentSheen"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["TopAccent"].Instance,
+                    AnchorPoint = Vector2.new(0, 0.5),
+                    Position = UDim2.new(-0.35, 0, 0.5, 0),
+                    Size = UDim2.new(0.32, 0, 1, 0),
+                    BackgroundColor3 = Library.Theme["Accent 4"],
+                    BackgroundTransparency = 0.18,
+                    BorderSizePixel = 0,
+                    ZIndex = 3
+                }):AddToTheme({BackgroundColor3 = "Accent 4"})
+
+                Library:Create("UIGradient", {
+                    Name = "\0",
+                    Parent = Items["TopAccentSheen"].Instance,
+                    Rotation = 0,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1),
+                        NumberSequenceKeypoint.new(0.2, 0.7),
+                        NumberSequenceKeypoint.new(0.5, 0.1),
+                        NumberSequenceKeypoint.new(0.8, 0.7),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
+                })
+
+                Items["TopAccentPulse"] = Library:Create("Frame", {
+                    Name = "\0",
+                    Parent = Items["TopAccent"].Instance,
+                    AnchorPoint = Vector2.new(0.5, 0.5),
+                    Position = UDim2.new(0.5, 0, 0.5, 0),
+                    Size = UDim2.new(0.18, 0, 1, 0),
+                    BackgroundColor3 = Library.Theme["Accent 3"],
+                    BackgroundTransparency = 0.72,
+                    BorderSizePixel = 0,
+                    ZIndex = 2
+                }):AddToTheme({BackgroundColor3 = "Accent 3"})
+
+                Library:Create("UIGradient", {
+                    Name = "\0",
+                    Parent = Items["TopAccentPulse"].Instance,
+                    Rotation = 0,
+                    Transparency = NumberSequence.new({
+                        NumberSequenceKeypoint.new(0, 1),
+                        NumberSequenceKeypoint.new(0.5, 0.15),
+                        NumberSequenceKeypoint.new(1, 1)
+                    })
                 })
                 
                 Items["Side"] = Library:Create("Frame", {
@@ -2312,7 +2370,7 @@ local Library = {
                     Name = "\0",
                     Parent = Items["Search"].Instance,
                     Color = Library.Theme["Border"],
-                    Transparency = 0.2
+                    Transparency = 0.32
                 }):AddToTheme({Color = "Border"})
 
                 Items["SearchIcon"] = Library:Create("ImageLabel", {
@@ -2360,12 +2418,22 @@ local Library = {
                     Items["Search"]:Tween({
                         BackgroundColor3 = Library.Theme["Accent 2"]
                     }, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    if Items["Search"].Instance:FindFirstChildOfClass("UIStroke") then
+                        Library:Tween({
+                            Transparency = 0.08
+                        }, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), Items["Search"].Instance:FindFirstChildOfClass("UIStroke"))
+                    end
                 end)
 
                 Library:Connect(Items["SearchInput"].Instance.FocusLost, function()
                     Items["Search"]:Tween({
                         BackgroundColor3 = Library.Theme["Foreground"]
                     }, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    if Items["Search"].Instance:FindFirstChildOfClass("UIStroke") then
+                        Library:Tween({
+                            Transparency = 0.32
+                        }, TweenInfo.new(0.18, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), Items["Search"].Instance:FindFirstChildOfClass("UIStroke"))
+                    end
                 end)
 
                 Library:Create("UICorner", {
@@ -2466,6 +2534,26 @@ local Library = {
             end
 
             local Debounce = false
+            local AccentAnimationOffset = math.random()
+
+            Library:Connect(RunService.RenderStepped, function()
+                if not Items["TopAccent"].Instance.Parent then
+                    return
+                end
+
+                local Clock = os.clock() + AccentAnimationOffset
+                local SheenTravel = ((Clock * 0.22) % 1.8) - 0.45
+                local PulseCenter = 0.5 + (math.sin(Clock * 1.4) * 0.18)
+                local PulseWidth = 0.14 + ((math.sin(Clock * 1.9) + 1) * 0.04)
+
+                Items["TopAccentSheen"].Instance.Position = UDim2.new(SheenTravel, 0, 0.5, 0)
+                Items["TopAccentPulse"].Instance.Position = UDim2.new(PulseCenter, 0, 0.5, 0)
+                Items["TopAccentPulse"].Instance.Size = UDim2.new(PulseWidth, 0, 1, 0)
+
+                if Window.IsOpen and not Debounce then
+                    Items["FrameGlow"].Instance.ImageTransparency = 0.845 - ((math.sin(Clock * 1.2) + 1) * 0.018)
+                end
+            end)
 
             function Window:SetBackground(BackgroundData)
                 local Data = type(BackgroundData) == "table" and BackgroundData or {Image = BackgroundData}
@@ -2646,11 +2734,15 @@ local Library = {
                 if Bool then
                     Items["WindowScale"].Instance.Scale = 0.965
                     Items["FrameGlow"].Instance.ImageTransparency = 0.9
+                    Items["TopAccentSheen"].Instance.Position = UDim2.new(-0.35, 0, 0.5, 0)
+                    Items["TopAccentPulse"].Instance.BackgroundTransparency = 0.72
                     Items["WindowScale"]:Tween({Scale = 1}, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out))
                     Items["FrameGlow"]:Tween({ImageTransparency = 0.84}, TweenInfo.new(0.24, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    Items["TopAccentPulse"]:Tween({BackgroundTransparency = 0.58}, TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
                 else
                     Items["WindowScale"]:Tween({Scale = 0.965}, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In))
                     Items["FrameGlow"]:Tween({ImageTransparency = 0.94}, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In))
+                    Items["TopAccentPulse"]:Tween({BackgroundTransparency = 0.82}, TweenInfo.new(0.16, Enum.EasingStyle.Quad, Enum.EasingDirection.In))
                 end
 
                 Items["MainFrame"]:FadeDescendants(Bool, function()
@@ -2759,36 +2851,48 @@ local Library = {
                     CornerRadius = UDim.new(0, 8)
                 })
 
+                Library:Create("UIStroke", {
+                    Name = "\0",
+                    Parent = Items["Inactive"].Instance,
+                    Color = Library.Theme["Border"],
+                    Transparency = 0.82,
+                    Thickness = 1
+                }):AddToTheme({Color = "Border"})
+
                 Library:Create("UIPadding", {
                     Name = "\0",
                     Parent = Items["Inactive"].Instance,
                     PaddingBottom = UDim.new(0, 15),
-                    PaddingTop = UDim.new(0, 15)
+                    PaddingTop = UDim.new(0, 15),
+                    PaddingLeft = UDim.new(0, 15),
+                    PaddingRight = UDim.new(0, 15)
                 })
                 
                 Items["Icon"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Inactive"].Instance,
+                    Visible = false,
                     ImageColor3 = Library.Theme["TextPrimary"],
                     Image = Page.Icon,
                     BackgroundTransparency = 1,
                     Position = UDim2.new(0, 15, 0, 0),
-                    Size = UDim2.new(0, 18, 0, 18),
+                    Size = UDim2.new(0, 0, 0, 0),
                     BorderSizePixel = 0
                 }):AddToTheme({ImageColor3 = 'Accent'})
                 
                 Items["Text"] = Library:Create("TextLabel", {
                     Name = "\0",
                     FontFace = Library.Font,
-                    TextSize = Library.FontSize,
+                    TextSize = Library.FontSize + 1,
                     Parent = Items["Inactive"].Instance,
                     TextColor3 = Library.Theme["TextPrimary"],
                     Text = Page.Name,
                     Size = UDim2.new(0, 0, 0, 15),
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 48, 0, 0),
+                    Position = UDim2.new(0, 0, 0, 0),
                     BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.X
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    TextXAlignment = Enum.TextXAlignment.Left
                 })
                 
                 Items["ThreeDots"] = Library:Create("ImageButton", {
@@ -2796,10 +2900,10 @@ local Library = {
                     Parent = Items["Inactive"].Instance,
                     ImageColor3 = Color3.fromRGB(88, 90, 103),
                     AutoButtonColor = false,
-                    AnchorPoint = Vector2.new(1, 0),
+                    AnchorPoint = Vector2.new(1, 0.5),
                     Image = "rbxassetid://74238102610040",
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(1, -15, 0, 0),
+                    Position = UDim2.new(1, -15, 0.5, 0),
                     Size = UDim2.new(0, 18, 0, 18),
                     BorderSizePixel = 0
                 })
@@ -2844,6 +2948,24 @@ local Library = {
 
             local Debounce = false
 
+            Items["Inactive"]:OnHover(function()
+                if not Page.Active then
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 0.94,
+                        BackgroundColor3 = Library.Theme["Foreground"]
+                    }, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]}, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                end
+            end, function()
+                if not Page.Active then
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 1,
+                        BackgroundColor3 = Library.Theme["Accent 2"]
+                    }, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["TextPrimary"]}, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                end
+            end)
+
             function Page:Turn(Bool)
                 if Debounce then
                     return
@@ -2855,16 +2977,14 @@ local Library = {
 
                 if Bool then 
                     Items["Inactive"]:Tween({
-                        BackgroundTransparency = 0.88,
-                        BackgroundColor3 = Library.Theme["Accent 2"]
+                        BackgroundTransparency = 0.9,
+                        BackgroundColor3 = Library.Theme["Foreground"]
                     })
-                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent 4"]})
                     Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]})
                     Items["ThreeDots"]:Tween({ImageColor3 = Library.Theme["Accent 3"]})
                     Items["SubPages"].Instance.Visible = true
                 else
                     Items["Inactive"]:Tween({BackgroundTransparency = 1})
-                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent"]})
                     Items["Text"]:Tween({TextColor3 = Library.Theme["TextPrimary"]})
                     Items["ThreeDots"]:Tween({ImageColor3 = Color3.fromRGB(88, 90, 103)})
                     Items["SubPages"].Instance.Visible = false
@@ -2933,15 +3053,24 @@ local Library = {
                     CornerRadius = UDim.new(0, 5)
                 })
 
+                Library:Create("UIStroke", {
+                    Name = "\0",
+                    Parent = Items["Inactive"].Instance,
+                    Color = Library.Theme["Border"],
+                    Transparency = 0.86,
+                    Thickness = 1
+                }):AddToTheme({Color = "Border"})
+
                 Items["Icon"] = Library:Create("ImageLabel", {
                     Name = "\0",
                     Parent = Items["Inactive"].Instance,
+                    Visible = false,
                     ImageColor3 = Library.Theme["TextPrimary"],
                     AnchorPoint = Vector2.new(0, 0.5),
                     Image = Page.Icon,
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 10, 0.5, 0),
-                    Size = UDim2.new(0, 18, 0, 18),
+                    Position = UDim2.new(0, 0, 0.5, 0),
+                    Size = UDim2.new(0, 0, 0, 0),
                     BorderSizePixel = 0
                 }):AddToTheme({ImageColor3 = function()
                     return Color3.fromRGB(117, 117, 131)
@@ -2957,9 +3086,10 @@ local Library = {
                     AnchorPoint = Vector2.new(0, 0.5),
                     Size = UDim2.new(0, 0, 0, 15),
                     BackgroundTransparency = 1,
-                    Position = UDim2.new(0, 38, 0.5, 0),
+                    Position = UDim2.new(0, 12, 0.5, 0),
                     BorderSizePixel = 0,
-                    AutomaticSize = Enum.AutomaticSize.X
+                    AutomaticSize = Enum.AutomaticSize.X,
+                    TextXAlignment = Enum.TextXAlignment.Left
                 }):AddToTheme({TextColor3 = function()
                     return Color3.fromRGB(117, 117, 131)
                 end})           
@@ -3050,6 +3180,24 @@ local Library = {
 
             local Debounce = false
 
+            Items["Inactive"]:OnHover(function()
+                if not Page.Active then
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 0.95,
+                        BackgroundColor3 = Library.Theme["Foreground"]
+                    }, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]}, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                end
+            end, function()
+                if not Page.Active then
+                    Items["Inactive"]:Tween({
+                        BackgroundTransparency = 1,
+                        BackgroundColor3 = Library.Theme["Accent 2"]
+                    }, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                    Items["Text"]:Tween({TextColor3 = Library.Theme["TextSecondary"]}, TweenInfo.new(0.16, Enum.EasingStyle.Quart, Enum.EasingDirection.Out))
+                end
+            end)
+
             function Page:Turn(Bool)
                 if Debounce then
                     return
@@ -3061,14 +3209,13 @@ local Library = {
 
                 if Bool then 
                     Items["Inactive"]:Tween({
-                        BackgroundTransparency = 0.9,
-                        BackgroundColor3 = Library.Theme["Accent 2"]
+                        BackgroundTransparency = 0.92,
+                        BackgroundColor3 = Library.Theme["Foreground"]
                     })
                     
                     Items["Icon"]:ChangeItemTheme({ImageColor3 = "Accent 3"})
                     Items["Text"]:ChangeItemTheme({TextColor3 = "Accent 3"})
 
-                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["Accent 4"]})
                     Items["Text"]:Tween({TextColor3 = Library.Theme["Accent 4"]})
 
                     Library.CurrentPage = Page
@@ -3086,7 +3233,6 @@ local Library = {
                         return Color3.fromRGB(117, 117, 131)
                     end}) 
 
-                    Items["Icon"]:Tween({ImageColor3 = Library.Theme["TextPrimary"]})
                     Items["Text"]:Tween({TextColor3 = Library.Theme["TextSecondary"]})
                 end
 
