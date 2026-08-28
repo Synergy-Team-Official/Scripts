@@ -19935,7 +19935,7 @@ end
 function ad.CreateThemeDropdown(au, av, aw)
     aw = aw or {}
     local tab = av
-    if tab and tab.IsTab then
+    if tab and (tab.IsTab or tab.__type == 'Tab') then
         local flag = aw.Flag or 'InterfaceTheme'
         local title = aw.Title or 'loc:control.theme'
         local titleKeys = aw.TitleKeys or {}
