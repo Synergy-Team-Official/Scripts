@@ -65,10 +65,8 @@ do
                                 d.Icons[e].Spritesheets[i] = i
                             end
                         else
-                            warn("AddIcons: Invalid spritesheet data format for icon '" .. g .. "'")
                         end
                     else
-                        warn("AddIcons: Unsupported data type for icon '" .. g .. "': " .. type(h))
                     end
                 end
             end
@@ -527,7 +525,6 @@ d.Heartbeat
                     if m and m.Window and m.Window.Debug then
                         local x, z = v:find(':%d+: ')
 
-                        warn('[ WindUI: DEBUG Mode ] ' .. v)
 
                         return m:Notify({
                             Title = 'DEBUG Mode: Error',
@@ -1124,13 +1121,6 @@ d.Heartbeat
                             if M then
                                 H.ImageLabel.Image = N
                             else
-                                warn(
-                                    string.format(
-                                        "[ WindUI.Creator ] Failed to load custom asset '%s': %s",
-                                        J,
-                                        tostring(N)
-                                    )
-                                )
                                 H:Destroy()
 
                                 return
@@ -1139,7 +1129,6 @@ d.Heartbeat
                     end)
                     if not L then
                         local N = (identifyexecutor and identifyexecutor()) or 'Studio'
-                        warn("[ WindUI.Creator ]  '" .. N .. "' doesnt support the URL Images. Error: " .. tostring(M))
 
                         H:Destroy()
                     end
@@ -2820,12 +2809,6 @@ d.Heartbeat
                                 return false, 'JSON decode error'
                             end
                         else
-                            warn(
-                                '[Pelinda Ov2.5] HTTP request was not successful. Code: '
-                                    .. tostring(ak.StatusCode)
-                                    .. ' Message: '
-                                    .. ak.StatusMessage
-                            )
                             return false, 'HTTP request failed: ' .. ak.StatusMessage
                         end
                     else
@@ -2916,31 +2899,25 @@ d.Heartbeat
 
                 local function ValidateKey(ae)
                     if not ae or ae == '' then
-                        print('No key provided!')
 
                         return false, 'No key provided. Please get a key.'
                     end
 
                     local af = JunkieProtected.IsKeylessMode()
                     if af and af.keyless_mode then
-                        print('Keyless mode enabled. Starting script...')
                         return true, 'Keyless mode enabled. Starting script...'
                     end
 
                     local ag = JunkieProtected.ValidateKey({ Key = ae })
                     if ag == 'valid' then
-                        print('Key is valid! Starting script...')
                         load()
                         if _G.JD_IsPremium then
-                            print('Premium user detected!')
                         else
-                            print('Standard user')
                         end
 
                         return true, 'Key is valid!'
                     else
                         local ah = JunkieProtected.GetKeyLink()
-                        print('Invalid key!')
 
                         return false, 'Invalid key. Get one from:' .. ah
                     end
@@ -5810,11 +5787,17 @@ d.Heartbeat
                 aa.ConfigName = sanitizeSegment(window and window.ConfigName, 'default_config')
                 aa.Path = 'WindUI_SY/Settings/' .. aa.ConfigName .. '.json'
                 aa.Elements = {}
-                aa.Loading = false
+                aa.Loading = true
+                aa.Ready = false
                 aa.PendingSave = false
+                aa.Applied = {}
                 ensureFolder('WindUI_SY')
                 ensureFolder('WindUI_SY/Settings')
-                aa.Data = readData()
+                task.spawn(function()
+                    aa.Data = readData()
+                    aa.Ready = true
+                    aa:ApplyLoadedData()
+                end)
                 return aa
             end
 
@@ -5900,7 +5883,6 @@ d.Heartbeat
                         element.Callback = function(...)
                             local result = {pcall(originalCallback, ...)}
                             if not result[1] then
-                                warn('[ WindUI ] Callback error: ' .. tostring(result[2]))
                             end
                             if not aa.Loading then
                                 aa:Capture(flag, element)
@@ -5951,10 +5933,11 @@ d.Heartbeat
                     end
                 end
 
-                if aa.Data[flag] ~= nil and supported[elementType] then
+                if aa.Ready and not aa.Loading and aa.Data[flag] ~= nil and supported[elementType] then
                     aa.Loading = true
                     applyValue(element, aa.Data[flag])
                     aa.Loading = false
+                    aa.Applied[flag] = true
                 end
                 return element
             end
@@ -5963,16 +5946,35 @@ d.Heartbeat
                 aa.Elements[flag] = nil
             end
 
-            function aa.Load(_)
-                aa.Data = readData()
+            function aa.ApplyLoadedData(_)
                 aa.Loading = true
-                for flag, element in pairs(aa.Elements) do
-                    if aa.Data[flag] ~= nil then
-                        applyValue(element, aa.Data[flag])
+                aa.Applied = {}
+                local pending = true
+                while pending do
+                    pending = false
+                    local processed = 0
+                    for flag, element in pairs(aa.Elements) do
+                        if not aa.Applied[flag] and aa.Data[flag] ~= nil then
+                            applyValue(element, aa.Data[flag])
+                            aa.Applied[flag] = true
+                            pending = true
+                            processed += 1
+                            if processed >= 16 then
+                                processed = 0
+                                task.wait()
+                            end
+                        end
                     end
                 end
                 aa.Loading = false
                 aa.PendingSave = false
+                return aa.Data
+            end
+
+            function aa.Load(_)
+                aa.Data = readData()
+                aa.Ready = true
+                aa:ApplyLoadedData()
                 return aa.Data
             end
 
@@ -15447,12 +15449,6 @@ ar, as = ao:New(aq)
                                         au(as)
                                     end)
                                     if not ax then
-                                        warn(
-                                            "[ WindUI ] Failed to destroy element '"
-                                                .. tostring(aq.Flag or as.__type or an)
-                                                .. "': "
-                                                .. tostring(ay)
-                                        )
                                     end
                                 elseif at and at.Destroy then
                                     at:Destroy()
@@ -17602,7 +17598,6 @@ aB, b = al:New(aA)
 
                     if string.find(r, 'http') then
                         if not (writefile and isfile and getcustomasset) then
-                            warn('[ WindUI.Window.Background ] Missing file functions for remote video, using raw URL')
                             return r
                         end
 
@@ -17616,7 +17611,6 @@ aB, b = al:New(aA)
                                 writefile(u, v.Body)
                             end)
                             if not v then
-                                warn('[ WindUI.Window.Background ] Failed to download video: ' .. tostring(x))
                                 return nil
                             end
                         end
@@ -17625,11 +17619,9 @@ aB, b = al:New(aA)
                             return getcustomasset(u)
                         end)
                         if not v then
-                            warn('[ WindUI.Window.Background ] Failed to load custom asset: ' .. tostring(x))
                             return nil
                         end
 
-                        warn('[ WindUI.Window.Background ] VideoFrame may not work with custom video')
                         return x
                     end
 
@@ -17654,7 +17646,6 @@ aB, b = al:New(aA)
                     end
 
                     if not (writefile and isfile and getcustomasset) then
-                        warn('[ WindUI.Window.Background ] Missing file functions for remote image, using raw URL')
                         return p
                     end
 
@@ -17667,7 +17658,6 @@ aB, b = al:New(aA)
                             writefile(r, u.Body)
                         end)
                         if not u then
-                            warn('[ Window.Background ] Failed to download image: ' .. tostring(v))
                             return nil
                         end
                     end
@@ -17676,7 +17666,6 @@ aB, b = al:New(aA)
                         return getcustomasset(r)
                     end)
                     if not u then
-                        warn('[ Window.Background ] Failed to load custom asset: ' .. tostring(v))
                         return nil
                     end
 
@@ -19913,7 +19902,6 @@ function ad.CreateWindow(au, av)
     av.Parent = ad.ScreenGui.Window
 
     if ad.Window then
-        warn('You cannot create more than one window')
         return
     end
 
