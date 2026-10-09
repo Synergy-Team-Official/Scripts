@@ -531,114 +531,248 @@ function library:create(instance, options)
 end
 
 function library:mobile_popup_position(anchor, width, height, gap)
-    local viewport = (ws.CurrentCamera and ws.CurrentCamera.ViewportSize) or vec2(800, 600)
+    local viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(800, 600)
+    local inset = gui_service:GetGuiInset()
+    local safe_top = max(8, inset.Y + 6)
+    local safe_bottom = max(safe_top + 1, viewport.Y - 8)
+    width = clamp(width, 1, max(1, viewport.X - 12))
+    height = clamp(height, 0, max(1, safe_bottom - safe_top))
     local left = clamp(anchor.AbsolutePosition.X, 6, max(6, viewport.X - width - 6))
-    local top = anchor.AbsolutePosition.Y + anchor.AbsoluteSize.Y + (gap or 8)
-    if top + height > viewport.Y - 8 then
-        top = anchor.AbsolutePosition.Y - height - 8
+    local below = anchor.AbsolutePosition.Y + anchor.AbsoluteSize.Y + (gap or 6)
+    local above = anchor.AbsolutePosition.Y - height - (gap or 6)
+    local top = below + height <= safe_bottom and below or above
+    return dim_offset(floor(left), floor(clamp(top, safe_top, max(safe_top, safe_bottom - height))))
+end
+
+function library:mobile_format_control(items, kind)
+    if not library.is_mobile or not items then return end
+    local root = items.toggle or items.slider_object or items.dropdown_object or items.label or items.textbox or items.keybind_element
+    local name = items.name
+    if not root or not name then return end
+
+    name.TextSize = 14
+    name.TextWrapped = true
+    name.TextTruncate = Enum.TextTruncate.None
+    name.AutomaticSize = Enum.AutomaticSize.Y
+    name.TextYAlignment = Enum.TextYAlignment.Top
+    local name_offset = -8
+    if kind == "toggle" then
+        name_offset = -61
+    elseif kind == "keybind" then
+        name_offset = -82
+    elseif kind == "label" then
+        name_offset = -41
+    elseif kind == "slider" then
+        name_offset = -82
     end
-    top = clamp(top, min(48, viewport.Y * 0.12), max(min(48, viewport.Y * 0.12), viewport.Y - height - 8))
-    return dim_offset(floor(left), floor(top))
+    name.Size = dim2(1, name_offset, 0, 0)
+    if items.info then
+        items.info.TextSize = 12
+        items.info.TextWrapped = true
+        items.info.TextTruncate = Enum.TextTruncate.None
+        items.info.AutomaticSize = Enum.AutomaticSize.Y
+        items.info.Size = dim2(1, -10, 0, 0)
+    end
+
+    if kind == "toggle" or kind == "keybind" or kind == "label" then
+        if items.right_components then
+            items.right_components.AnchorPoint = vec2(1, 0)
+            items.right_components.Position = dim2(1, -4, 0, 4)
+            items.right_components.Size = dim_offset(kind == "keybind" and 68 or (kind == "label" and 26 or 48), 25)
+        end
+        if kind == "keybind" then name.Size = dim2(1, -82, 0, 0) end
+        if kind == "label" and not items.right_components then name.Size = dim2(1, -8, 0, 0) end
+        if kind == "toggle" and items.toggle_button then
+            items.toggle_button.Size = dim_offset(items.tick and 24 or 40, 22)
+        end
+    elseif kind == "dropdown" then
+        items.right_components.AnchorPoint = vec2(0, 0)
+        items.right_components.Size = dim2(1, -8, 0, 32)
+        items.dropdown.Size = dim2(1, 0, 0, 28)
+        items.sub_text.TextSize = 13
+        items.sub_text.Size = dim2(1, -24, 1, 0)
+    elseif kind == "textbox" then
+        items.right_components.Size = dim2(1, -8, 0, 34)
+        items.input.Size = dim2(1, -4, 0, 30)
+    elseif kind == "slider" then
+        items.right_components.Size = dim2(1, -8, 0, 27)
+        items.slider.Size = dim2(1, -4, 0, 20)
+        items.value.AutomaticSize = Enum.AutomaticSize.None
+        items.value.AnchorPoint = vec2(1, 0)
+        items.value.Position = dim2(1, -4, 0, 0)
+        items.value.Size = dim_offset(78, 20)
+        items.value.TextSize = 13
+    end
+
+    local last_name_y = -1
+    local function update()
+        if library.unloaded or not root.Parent then return end
+        local label_y = max(18, name.AbsoluteSize.Y)
+        if label_y == last_name_y then return end
+        last_name_y = label_y
+        if items.info then
+            if kind == "slider" then
+                items.info.Position = dim_offset(4, label_y + 36)
+            elseif kind == "dropdown" then
+                items.info.Position = dim_offset(4, label_y + 38)
+            elseif kind == "textbox" then
+                items.info.Position = dim_offset(4, label_y + 39)
+            else
+                items.info.Position = dim_offset(4, label_y + 3)
+            end
+        end
+        if kind == "slider" then
+            items.right_components.Position = dim_offset(4, label_y + 6)
+        elseif kind == "dropdown" or kind == "textbox" then
+            items.right_components.Position = dim_offset(4, label_y + 6)
+        end
+        library:queue_mobile_layout()
+    end
+    library:connection(name:GetPropertyChangedSignal("AbsoluteSize"), update)
+    update()
 end
 
 function library:refresh_mobile_layout()
-    if not library.is_mobile or not library.mobile_window then return end
+    if library.unloaded or not library.is_mobile or not library.mobile_window then return end
+    local camera = ws.CurrentCamera
+    if not camera then return end
     local win = library.mobile_window
     local it = win.items
-    local viewport = ws.CurrentCamera.ViewportSize
-    local narrow = viewport.X < 600
-    local side = narrow and 56 or 140
-    local header = narrow and 44 or 48
-    local footer = 22
-    local top = min(56, floor(viewport.Y * 0.13))
-    local bottom = 12
-    local width = max(1, min(860, viewport.X - (narrow and 14 or 24)))
-    local height = max(1, min(narrow and 710 or 540, viewport.Y - top - bottom))
-    local x = floor((viewport.X - width) / 2)
-    local y = floor(top + max(0, (viewport.Y - top - bottom - height) / 2))
-
-    local viewport_changed = not library.mobile_viewport or library.mobile_viewport ~= viewport
+    if not it.main or not it.main.Parent then return end
+    local viewport = camera.ViewportSize
+    local landscape = viewport.X > viewport.Y
+    local inset = gui_service:GetGuiInset()
+    local top = max(inset.Y + 9, min(60, floor(viewport.Y * 0.13)))
+    local bottom = 9
+    local available_width = max(1, viewport.X - 14)
+    local width = landscape and min(790, floor(viewport.X * 0.80), available_width) or min(580, floor(viewport.X * 0.96), available_width)
+    width = max(1, width)
+    local available_height = max(1, viewport.Y - top - bottom)
+    local height = landscape and floor(available_height * 0.96) or floor(available_height * 0.92)
+    height = clamp(height, 1, available_height)
+    local compact = library.mobile_sidebar_preference
+    if compact == nil then compact = width < 760 or viewport.Y < 620 end
+    local side = compact and 54 or 154
+    local header = 42
+    local footer = 20
+    local previous_viewport = library.mobile_viewport
+    local changed = previous_viewport ~= viewport
+    local old_position = it.main.Position
+    local old_size = it.main.Size
+    local left = floor((viewport.X - width) / 2)
+    local y = floor(top + max(0, (available_height - height) / 2))
+    if previous_viewport and changed then
+        local old_center_x = (old_position.X.Offset + old_size.X.Offset / 2) / max(previous_viewport.X, 1)
+        local old_center_y = (old_position.Y.Offset + old_size.Y.Offset / 2) / max(previous_viewport.Y, 1)
+        left = floor(old_center_x * viewport.X - width / 2)
+        y = floor(old_center_y * viewport.Y - height / 2)
+    elseif previous_viewport and not changed then
+        left, y = old_position.X.Offset, old_position.Y.Offset
+    end
+    left = clamp(left, 0, max(0, viewport.X - width))
+    y = clamp(y, top, max(top, viewport.Y - height - bottom))
     library.mobile_viewport = viewport
     it.main.Size = dim_offset(width, height)
-    if viewport_changed then it.main.Position = dim_offset(x, y) end
+    if changed or it.main.Position ~= dim_offset(left, y) then
+        it.main.Position = dim_offset(left, y)
+    end
     it.side_frame.Size = dim2(0, side, 1, -footer)
-    it.button_holder.Position = dim_offset(0, narrow and 48 or 55)
-    it.button_holder.Size = dim2(1, 0, 1, -(narrow and 48 or 55))
-    it.title.Text = narrow and win.name:sub(1, 1):upper() or string.format('<u>%s</u><font color="rgb(255, 255, 255)">%s</font>', win.name, win.suffix)
-    it.title.TextSize = narrow and 26 or 20
-    it.title.Size = dim2(1, 0, 0, narrow and 48 or 55)
+    it.title.Text = compact and win.name:sub(1, 1):upper() or win.name
+    it.title.TextSize = compact and 18 or 17
+    it.title.TextTruncate = Enum.TextTruncate.AtEnd
+    it.title.TextXAlignment = compact and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
+    it.title.Position = dim_offset(compact and 2 or 11, 0)
+    it.title.Size = dim_offset(compact and 24 or side - 44, 44)
+    it.button_holder.Position = dim_offset(0, 48)
+    it.button_holder.Size = dim2(1, 0, 1, -52)
+    if win.sidebar_toggle then
+        win.sidebar_toggle.Position = dim2(1, -29, 0, 9)
+        win.sidebar_toggle.Text = compact and "+" or "−"
+    end
     it.multi_holder.Position = dim_offset(side, 0)
     it.multi_holder.Size = dim2(1, -side, 0, header)
     it.global_fade.Position = dim_offset(side, header)
     it.global_fade.Size = dim2(1, -side, 1, -(header + footer))
     it.info.Size = dim2(1, 0, 0, footer)
-    it.game.Visible = not narrow
-    it.other_info.Visible = not narrow
-
+    it.game.Visible = false
+    it.other_info.Visible = not compact
+    it.other_info.TextSize = 11
     for _, child in it.button_holder:GetChildren() do
-        if child:IsA('TextLabel') then
-            child.Visible = not narrow
+        if child:IsA("TextLabel") then
+            child.Visible = not compact
+            child.TextSize = 12
         end
     end
-
     for _, tab in library.mobile_tabs do
-        if tab.items and tab.items.button then
-            tab.items.name.Visible = not narrow
-            tab.items.icon.Position = dim2(0, narrow and 8 or 10, 0.5, 0)
-            tab.items.button.Size = dim2(1, 0, 0, narrow and 40 or 38)
-            local panel = tab.items.tab_holder
-            panel.Position = dim_offset(side, header)
-            panel.Size = dim2(1, -side - 6, 1, -(header + footer + 6))
-            tab.items.multi_section_button_holder.Size = dim2(1, 0, 1, 0)
+        local t = tab.items
+        if t and t.button and t.button.Parent then
+            t.name.Visible = not compact
+            t.name.TextSize = 13
+            t.name.TextWrapped = false
+            t.name.TextTruncate = Enum.TextTruncate.AtEnd
+            t.name.AutomaticSize = Enum.AutomaticSize.None
+            t.name.Size = dim2(1, -48, 1, 0)
+            t.name.Position = dim_offset(40, 0)
+            t.icon.Position = dim2(0, compact and 15 or 11, 0.5, 0)
+            t.icon.Size = dim_offset(21, 21)
+            t.button.Size = dim2(1, 0, 0, 39)
+            t.tab_holder.Position = dim_offset(side, header)
+            t.tab_holder.Size = dim2(1, -side - 6, 1, -(header + footer + 6))
+            t.multi_section_button_holder.Size = dim2(1, 0, 1, 0)
         end
     end
-
     for _, page in library.mobile_pages do
         if page.Parent then
-            local layout = page:FindFirstChildOfClass('UIListLayout')
-            page.ScrollingEnabled = narrow
+            local layout = page:FindFirstChildOfClass("UIListLayout")
+            page.Active = true
+            page.ScrollingEnabled = true
             page.ScrollingDirection = Enum.ScrollingDirection.Y
-            page.AutomaticCanvasSize = narrow and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
+            page.AutomaticCanvasSize = Enum.AutomaticSize.Y
             page.CanvasSize = dim_offset(0, 0)
+            page.ScrollBarThickness = 3
             if layout then
-                layout.FillDirection = narrow and Enum.FillDirection.Vertical or Enum.FillDirection.Horizontal
+                layout.FillDirection = Enum.FillDirection.Vertical
                 layout.HorizontalFlex = Enum.UIFlexAlignment.Fill
-                layout.VerticalFlex = narrow and Enum.UIFlexAlignment.None or Enum.UIFlexAlignment.Fill
+                layout.VerticalFlex = Enum.UIFlexAlignment.None
+                layout.Padding = dim(0, 9)
             end
         end
     end
-
     for _, column in library.mobile_columns do
         if column.Parent then
-            column.AutomaticSize = narrow and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
-            column.Size = narrow and dim2(1, 0, 0, 0) or dim2(0, 0, column:GetAttribute('MileniumSectionSize') or 1, 0)
+            column.AutomaticSize = Enum.AutomaticSize.Y
+            column.Size = dim2(1, 0, 0, 0)
         end
     end
-
     for _, sec in library.mobile_sections do
         if sec.outline.Parent then
-            if narrow then
-                local content = sec.layout.AbsoluteContentSize.Y
-                local target = clamp(content + 82, 122, min(360, max(180, height * 0.67)))
-                sec.outline.Size = dim2(1, 0, 0, target)
-            else
-                sec.outline.Size = dim2(0, 0, sec.size, -3)
-            end
+            local content = max(sec.layout.AbsoluteContentSize.Y + 15, sec.elements.AbsoluteSize.Y)
+            local target = max(92, math.ceil(content + 57))
+            local new_size = dim2(1, 0, 0, target)
+            if sec.outline.Size ~= new_size then sec.outline.Size = new_size end
+            sec.scrolling.ScrollingEnabled = false
+            sec.scrolling.ScrollBarThickness = 0
+            sec.scrolling.AutomaticCanvasSize = Enum.AutomaticSize.None
+            sec.scrolling.CanvasSize = dim_offset(0, 0)
+            sec.elements.Position = dim_offset(8, 8)
+            sec.elements.Size = dim2(1, -16, 0, 0)
+            sec.layout.Padding = dim(0, 9)
         end
     end
     if win.mobile_button then
-        win.mobile_button.Position = dim2(1, -49, 0, max(8, floor(top * 0.20)))
+        win.mobile_button.Position = dim2(1, -49, 0, max(8, floor(inset.Y + 7)))
     end
 end
 
 function library:queue_mobile_layout()
-    if not library.is_mobile or library.mobile_refresh_pending then return end
+    if not library.is_mobile or library.unloaded or library.mobile_refresh_pending then return end
     library.mobile_refresh_pending = true
     task.defer(function()
-        library.mobile_refresh_pending = false
-        if library.mobile_window and library.mobile_window.items.main.Parent then
-            library:refresh_mobile_layout()
+        if not library.unloaded then
+            local ok, err = pcall(function() library:refresh_mobile_layout() end)
+            if not ok then warn("[Millenium] Mobile layout: " .. tostring(err)) end
         end
+        library.mobile_refresh_pending = false
     end)
 end
 
@@ -941,6 +1075,29 @@ function library:window(properties)
         if library.is_mobile then
             library.mobile_window = cfg
             library:mobile_drag(items.title, items.main)
+            cfg.sidebar_toggle = library:create("TextButton", {
+                Parent = items.side_frame,
+                Name = "MobileSidebarToggle",
+                Text = "+",
+                FontFace = fonts.font,
+                TextSize = 17,
+                TextColor3 = rgb(175, 169, 221),
+                BackgroundColor3 = rgb(32, 31, 38),
+                AutoButtonColor = false,
+                BorderSizePixel = 0,
+                Size = dim_offset(24, 27),
+                ZIndex = 8,
+            })
+            library:create("UICorner", {Parent = cfg.sidebar_toggle, CornerRadius = dim(0, 6)})
+            library:connection(cfg.sidebar_toggle.MouseButton1Click, function()
+                local compact = library.mobile_sidebar_preference
+                if compact == nil then
+                    local viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(450, 800)
+                    compact = library.mobile_window.items.main.AbsoluteSize.X < 760 or viewport.Y < 620
+                end
+                library.mobile_sidebar_preference = not compact
+                library:queue_mobile_layout()
+            end)
             cfg.mobile_button = library:create("TextButton", {
                 Parent = library.items,
                 Name = "MobileMenu",
@@ -1675,7 +1832,10 @@ function library:section(properties)
     end
 
     if library.is_mobile then
-        insert(library.mobile_sections, {outline = items.outline, layout = elements_layout, size = cfg.size})
+        items.scrolling.ScrollingEnabled = false
+        items.scrolling.AutomaticCanvasSize = Enum.AutomaticSize.None
+        items.scrolling.ScrollBarThickness = 0
+        insert(library.mobile_sections, {outline = items.outline, layout = elements_layout, elements = items.elements, scrolling = items.scrolling, size = cfg.size})
         library:connection(elements_layout:GetPropertyChangedSignal("AbsoluteContentSize"), function()
             library:queue_mobile_layout()
         end)
@@ -1928,11 +2088,6 @@ function library:toggle(options)
         })
         library:create("UIListLayout", {Parent = items.elements, Padding = dim(0, 6), SortOrder = Enum.SortOrder.LayoutOrder})
     end
-    if library.is_mobile then
-        items.name.TextTruncate = Enum.TextTruncate.AtEnd
-        items.name.AutomaticSize = Enum.AutomaticSize.Y
-        items.name.Size = dim2(1, -140, 0, 20)
-    end
     items[ "toggle" ].MouseButton1Click:Connect(function()
         cfg.set(not cfg.enabled)
     end)
@@ -1957,6 +2112,7 @@ function library:toggle(options)
 
     config_flags[cfg.flag] = cfg.set
 
+    library:mobile_format_control(items, "toggle")
     return setmetatable(cfg, library)
 end 
 
@@ -2214,6 +2370,7 @@ function library:slider(options)
     cfg.set(cfg.default)
     config_flags[cfg.flag] = cfg.set
 
+    library:mobile_format_control(items, "slider")
     return setmetatable(cfg, library)
 end 
 
@@ -2261,7 +2418,7 @@ function library:dropdown(options)
             FontFace = fonts.small;
             TextColor3 = rgb(245, 245, 245);
             BorderColor3 = rgb(0, 0, 0);
-            Text = "Dropdown";
+            Text = cfg.name or "Dropdown";
             Parent = items[ "dropdown_object" ];
             Name = "\0";
             Size = dim2(1, 0, 0, 0);
@@ -2456,8 +2613,8 @@ function library:dropdown(options)
         cfg.open = bool == true
         local a = bool and cfg.y_size or 0
         if library.is_mobile then
-            a = min(a, max(80, ws.CurrentCamera.ViewportSize.Y * 0.53))
-            local width = min(items.dropdown.AbsoluteSize.X, ws.CurrentCamera.ViewportSize.X - 12)
+            a = min(a, max(68, (ws.CurrentCamera.ViewportSize.Y - gui_service:GetGuiInset().Y - 12) * 0.52))
+            local width = min(max(120, items.dropdown.AbsoluteSize.X), ws.CurrentCamera.ViewportSize.X - 12)
             items.dropdown_holder.Size = dim_offset(width, a)
             items.dropdown_holder.Position = library:mobile_popup_position(items.dropdown, width, a, 6)
         else
@@ -2565,6 +2722,7 @@ function library:dropdown(options)
     cfg.refresh_options(cfg.options)
     cfg.set(cfg.default)
         
+    library:mobile_format_control(items, "dropdown")
     return setmetatable(cfg, library)
 end
 
@@ -2667,6 +2825,7 @@ function library:label(options)
         });
     end 
 
+    library:mobile_format_control(items, "label")
     return setmetatable(cfg, library)
 end 
 
@@ -3297,6 +3456,7 @@ function library:textbox(options)
     items.textbox.Visible = cfg.visible
     config_flags[cfg.flag] = cfg.set
 
+    library:mobile_format_control(items, "textbox")
     return setmetatable(cfg, library)
 end
 
@@ -3626,6 +3786,7 @@ function library:keybind(options)
     cfg.set({mode = cfg.mode, active = cfg.active, key = cfg.key})           
     config_flags[cfg.flag] = cfg.set
 
+    library:mobile_format_control(items, "keybind")
     return setmetatable(cfg, library)
 end
 
