@@ -651,8 +651,8 @@ function library:refresh_mobile_layout()
     local height = landscape and floor(available_height * 0.96) or floor(available_height * 0.92)
     height = clamp(height, 1, available_height)
     local compact = library.mobile_sidebar_preference
-    if compact == nil then compact = width < 760 or viewport.Y < 620 end
-    local side = compact and 54 or 154
+    if compact == nil then compact = false end
+    local side = compact and 54 or min(216, max(156, floor(width * 0.28)))
     local header = 42
     local footer = 20
     local previous_viewport = library.mobile_viewport
@@ -678,8 +678,9 @@ function library:refresh_mobile_layout()
     end
     it.side_frame.Size = dim2(0, side, 1, -footer)
     it.title.Text = compact and win.name:sub(1, 1):upper() or win.name
-    it.title.TextSize = compact and 18 or 17
-    it.title.TextTruncate = Enum.TextTruncate.AtEnd
+    it.title.TextSize = compact and 18 or (side < 185 and 13 or 14)
+    it.title.TextTruncate = compact and Enum.TextTruncate.AtEnd or Enum.TextTruncate.None
+    it.title.TextWrapped = not compact
     it.title.TextXAlignment = compact and Enum.TextXAlignment.Center or Enum.TextXAlignment.Left
     it.title.Position = dim_offset(compact and 2 or 11, 0)
     it.title.Size = dim_offset(compact and 24 or side - 44, 44)
@@ -1093,7 +1094,7 @@ function library:window(properties)
                 local compact = library.mobile_sidebar_preference
                 if compact == nil then
                     local viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(450, 800)
-                    compact = library.mobile_window.items.main.AbsoluteSize.X < 760 or viewport.Y < 620
+                    compact = false
                 end
                 library.mobile_sidebar_preference = not compact
                 library:queue_mobile_layout()
@@ -1922,6 +1923,7 @@ function library:toggle(options)
         });
         
         items[ "right_components" ] = library:create( "Frame" , {
+            BackgroundTransparency = 1;
             Parent = items[ "toggle" ];
             Name = "\0";
             Position = dim2(1, 0, 0, 0);
@@ -2457,6 +2459,7 @@ function library:dropdown(options)
         });
         
         items[ "right_components" ] = library:create( "Frame" , {
+            BackgroundTransparency = 1;
             Parent = items[ "dropdown_object" ];
             Name = "\0";
             Position = dim2(1, 0, 0, 0);
@@ -2795,6 +2798,7 @@ function library:label(options)
         });
         
         items[ "right_components" ] = library:create( "Frame" , {
+            BackgroundTransparency = 1;
             Parent = items[ "label" ];
             Name = "\0";
             Position = dim2(1, 0, 0, 0);
@@ -3523,6 +3527,7 @@ function library:keybind(options)
         });
         
         items[ "right_components" ] = library:create( "Frame" , {
+            BackgroundTransparency = 1;
             Parent = items[ "keybind_element" ];
             Name = "\0";
             Position = dim2(1, 0, 0, 0);
