@@ -35,7 +35,6 @@ local numkey = NumberSequenceKeypoint.new
 local camera = ws.CurrentCamera
 local lp = players.LocalPlayer 
 local mouse = lp:GetMouse() 
-local gui_offset = gui_service:GetGuiInset().Y
 
 local max = math.max 
 local floor = math.floor 
@@ -56,7 +55,7 @@ local find = table.find
 local remove = table.remove
 local concat = table.concat
 
-getgenv().library = {
+local library = {
     directory = "milenium",
     folders = {
         "/fonts",
@@ -66,7 +65,9 @@ getgenv().library = {
     config_flags = {},
     connections = {},   
     notifications = {notifs = {}},
-    current_open; 
+    current_open;
+    unloaded = false;
+    flag_counter = 0;
 }
 
 local themes = {
@@ -122,7 +123,7 @@ local keys = {
     [Enum.KeyCode.RightBracket] = "]",
     [Enum.KeyCode.RightParenthesis] = ")",
     [Enum.KeyCode.LeftParenthesis] = "(",
-    [Enum.KeyCode.Semicolon] = ",",
+    [Enum.KeyCode.Semicolon] = ";",
     [Enum.KeyCode.Quote] = "'",
     [Enum.KeyCode.BackSlash] = "\\",
     [Enum.KeyCode.Comma] = ",",
@@ -141,66 +142,129 @@ local keys = {
     
 library.__index = library
 
-library.is_mobile = uis.TouchEnabled and not uis.KeyboardEnabled
+library.is_mobile = uis.TouchEnabled and (not uis.MouseEnabled or not uis.KeyboardEnabled)
 library.mobile_tabs = {}
 library.mobile_columns = {}
 library.mobile_pages = {}
 library.mobile_sections = {}
 
-for _, path in next, library.folders do 
-    makefolder(library.directory .. path)
-end
-
-local flags = library.flags 
-local config_flags = library.config_flags
-local notifications = library.notifications 
-
-local fonts = {}; do
-    function Register_Font(Name, Weight, Style, Asset)
-        if not isfile(Asset.Id) then
-            writefile(Asset.Id, Asset.Font)
-        end
-
-        if isfile(Name .. ".font") then
-            delfile(Name .. ".font")
-        end
-
-        local Data = {
-            name = Name,
-            faces = {
-                {
-                    name = "Normal",
-                    weight = Weight,
-                    style = Style,
-                    assetId = getcustomasset(Asset.Id),
-                },
-            },
-        }
-
-        writefile(Name .. ".font", http_service:JSONEncode(Data))
-
-        return getcustomasset(Name .. ".font");
+local function ensure_folder(path)
+    if type(isfolder) == "function" then
+        local ok, result = pcall(isfolder, path)
+        if ok and result then return true end
     end
-    
-    local Medium = Register_Font("Medium", 200, "Normal", {
-        Id = "Medium.ttf",
-        Font = game:HttpGet("https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/Inter_28pt-Medium.ttf"),
-    })
-
-    local SemiBold = Register_Font("SemiBold", 200, "Normal", {
-        Id = "SemiBold.ttf",
-        Font = game:HttpGet("https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/Inter_28pt-SemiBold.ttf"),
-    })
-
-    fonts = {
-        small = Font.new(Medium, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-        font = Font.new(SemiBold, Enum.FontWeight.Regular, Enum.FontStyle.Normal);
-    }
+    if type(makefolder) ~= "function" then return false end
+    local ok = pcall(makefolder, path)
+    if not ok and type(isfolder) == "function" then
+        local exists, result = pcall(isfolder, path)
+        return exists and result
+    end
+    return ok
 end
 
-function library:tween(obj, properties, easing_style, time) 
-    local tween = tween_service:Create(obj, TweenInfo.new(time or 0.25, easing_style or Enum.EasingStyle.Quint, Enum.EasingDirection.InOut, 0, false, 0), properties):Play()
-        
+local function has_file(path)
+    if type(isfile) ~= "function" then return false end
+    local ok, exists = pcall(isfile, path)
+    return ok and exists
+end
+
+local function read_file(path)
+    if not has_file(path) or type(readfile) ~= "function" then return nil end
+    local ok, content = pcall(readfile, path)
+    return ok and type(content) == "string" and content or nil
+end
+
+local function write_file(path, content)
+    if type(writefile) ~= "function" then return false, "writefile unavailable" end
+    local ok, err = pcall(writefile, path, content)
+    if not ok then return false, tostring(err) end
+    if err == false then return false, "writefile returned false" end
+    return true
+end
+
+local function safe_callback(callback, ...)
+    if type(callback) ~= "function" then return end
+    local ok, result = pcall(callback, ...)
+    if not ok then warn("[Millenium] callback error: " .. tostring(result)) end
+    return ok, result
+end
+
+local function config_name(value)
+    if type(value) ~= "string" then return nil end
+    local name = value:match("^%s*(.-)%s*$")
+    if not name or name == "" then return nil end
+    name = name:gsub("%.cfg$", "")
+    name = name:gsub("[^%w%._%-]", "_"):sub(1, 64)
+    if name == "" or name == "." or name == ".." then return nil end
+    return name
+end
+
+local function separator_option(options, default)
+    if options.seperator ~= nil then return options.seperator end
+    if options.Seperator ~= nil then return options.Seperator end
+    return default
+end
+
+local function config_path(value)
+    local name = config_name(value)
+    return name and (library.directory .. "/configs/" .. name .. ".cfg") or nil
+end
+
+library.filesystem_available = ensure_folder(library.directory)
+for _, path in ipairs(library.folders) do
+    library.filesystem_available = ensure_folder(library.directory .. path) and library.filesystem_available
+end
+
+local flags = library.flags
+local config_flags = library.config_flags
+local notifications = library.notifications
+
+local fonts = {
+    small = Font.fromEnum(Enum.Font.Gotham),
+    font = Font.fromEnum(Enum.Font.GothamBold)
+}
+
+do
+    local function register_font(name, weight, file_name, url)
+        if not library.filesystem_available or type(getcustomasset) ~= "function" then return nil end
+        local ttf = library.directory .. "/fonts/" .. file_name
+        local manifest = library.directory .. "/fonts/" .. name .. ".font"
+        if not has_file(ttf) then
+            local ok, content = pcall(function() return game:HttpGet(url) end)
+            if not ok or type(content) ~= "string" or #content < 100 then return nil end
+            local wrote = write_file(ttf, content)
+            if not wrote then return nil end
+        end
+        local ok, asset = pcall(getcustomasset, ttf)
+        if not ok or type(asset) ~= "string" then return nil end
+        local data = {name = name, faces = {{name = "Normal", weight = weight, style = "Normal", assetId = asset}}}
+        local encoded_ok, encoded = pcall(function() return http_service:JSONEncode(data) end)
+        if not encoded_ok then return nil end
+        local existing = read_file(manifest)
+        if existing ~= encoded then
+            if not write_file(manifest, encoded) then return nil end
+        end
+        local custom_ok, font_asset = pcall(getcustomasset, manifest)
+        return custom_ok and font_asset or nil
+    end
+
+    local medium = register_font("Medium", 500, "Medium.ttf", "https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/Inter_28pt-Medium.ttf")
+    local semibold = register_font("SemiBold", 600, "SemiBold.ttf", "https://github.com/i77lhm/storage/raw/refs/heads/main/fonts/Inter_28pt-SemiBold.ttf")
+    if medium then
+        local ok, face = pcall(Font.new, medium, Enum.FontWeight.Medium, Enum.FontStyle.Normal)
+        if ok then fonts.small = face end
+    end
+    if semibold then
+        local ok, face = pcall(Font.new, semibold, Enum.FontWeight.SemiBold, Enum.FontStyle.Normal)
+        if ok then fonts.font = face end
+    end
+end
+
+
+function library:tween(obj, properties, easing_style, time)
+    if library.unloaded or not obj then return nil end
+    local tween = tween_service:Create(obj, TweenInfo.new(time or 0.25, easing_style or Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), properties)
+    tween:Play()
     return tween
 end
 
@@ -236,20 +300,21 @@ function library:resizify(frame)
 
     library:connection(uis.InputChanged, function(input, game_event) 
         if resizing and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local viewport_x = camera.ViewportSize.X
-            local viewport_y = camera.ViewportSize.Y
+            local viewport = (ws.CurrentCamera and ws.CurrentCamera.ViewportSize) or camera.ViewportSize
+            local viewport_x = viewport.X
+            local viewport_y = viewport.Y
 
             local current_size = dim2(
                 start_size.X.Scale,
                 math.clamp(
                     start_size.X.Offset + (input.Position.X - start.X),
-                    og_size.X.Offset,
+                    min(og_size.X.Offset, viewport_x),
                     viewport_x
                 ),
                 start_size.Y.Scale,
                 math.clamp(
                     start_size.Y.Offset + (input.Position.Y - start.Y),
-                    og_size.Y.Offset,
+                    min(og_size.Y.Offset, viewport_y),
                     viewport_y
                 )
             )
@@ -259,21 +324,11 @@ function library:resizify(frame)
     end)
 end 
 
-function fag(tbl)
-    local Size = 0
-    
-    for _ in tbl do
-        Size = Size + 1
-    end
-
-    return Size
-end
-
 function library:next_flag()
-    local index = fag(library.flags) + 1;
-    local str = string.format("flagnumber%s", index)
-    
-    return str;
+    repeat
+        library.flag_counter += 1
+    until flags["flagnumber" .. library.flag_counter] == nil
+    return "flagnumber" .. library.flag_counter
 end 
 
 function library:mouse_in_frame(uiobject)
@@ -304,21 +359,22 @@ function library:draggify(frame)
 
     library:connection(uis.InputChanged, function(input, game_event) 
         if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            local viewport_x = camera.ViewportSize.X
-            local viewport_y = camera.ViewportSize.Y
+            local viewport = (ws.CurrentCamera and ws.CurrentCamera.ViewportSize) or camera.ViewportSize
+            local viewport_x = viewport.X
+            local viewport_y = viewport.Y
 
             local current_position = dim2(
                 0,
                 clamp(
                     start_size.X.Offset + (input.Position.X - start.X),
                     0,
-                    viewport_x - frame.Size.X.Offset
+                    max(0, viewport_x - frame.AbsoluteSize.X)
                 ),
                 0,
                 math.clamp(
                     start_size.Y.Offset + (input.Position.Y - start.Y),
                     0,
-                    viewport_y - frame.Size.Y.Offset
+                    max(0, viewport_y - frame.AbsoluteSize.Y)
                 )
             )
 
@@ -329,10 +385,13 @@ function library:draggify(frame)
 end 
 
 function library:convert(str)
+    if type(str) ~= "string" then return end
     local values = {}
 
     for value in string.gmatch(str, "[^,]+") do
-        insert(values, tonumber(value))
+        local number = tonumber(value)
+        if not number or number ~= number or number == math.huge or number == -math.huge then return end
+        insert(values, number)
     end
     
     if #values == 4 then              
@@ -343,98 +402,103 @@ function library:convert(str)
 end
 
 function library:convert_enum(enum)
-    local enum_parts = {}
-
-    for part in string.gmatch(enum, "[%w_]+") do
-        insert(enum_parts, part)
-    end
-
-    local enum_table = Enum
-    for i = 2, #enum_parts do
-        local enum_item = enum_table[enum_parts[i]]
-
-        enum_table = enum_item
-    end
-
-    return enum_table
+    if typeof(enum) == "EnumItem" then return enum end
+    if type(enum) ~= "string" then return nil end
+    local category, item = enum:match("^Enum%.([%w_]+)%.([%w_]+)$")
+    if not category or not item then return nil end
+    local ok, result = pcall(function() return Enum[category][item] end)
+    return ok and result or nil
 end
 
 local config_holder;
-function library:update_config_list() 
-    if not config_holder then 
-        return 
-    end
-    
-    local list = {}
-    
-    for idx, file in listfiles(library.directory .. "/configs") do
-        local name = file:gsub(library.directory .. "/configs\\", ""):gsub(".cfg", ""):gsub(library.directory .. "\\configs\\", "")
-        list[#list + 1] = name
-    end
-
-    config_holder.refresh_options(list)
-end 
-
-function library:get_config()
-    local Config = {}
-    
-    for _, v in next, flags do
-        if type(v) == "table" and v.key then
-            Config[_] = {active = v.active, mode = v.mode, key = tostring(v.key)}
-        elseif type(v) == "table" and v["Transparency"] and v["Color"] then
-            Config[_] = {Transparency = v["Transparency"], Color = v["Color"]:ToHex()}
-        else
-            Config[_] = v
+function library:update_config_list()
+    if not config_holder or type(listfiles) ~= "function" or not library.filesystem_available then return end
+    local ok, files = pcall(listfiles, library.directory .. "/configs")
+    if not ok or type(files) ~= "table" then return end
+    local result, seen = {}, {}
+    for _, file in ipairs(files) do
+        if type(file) == "string" then
+            local basename = file:gsub("\\", "/"):match("([^/]+)$")
+            local name = basename and basename:match("^(.*)%.cfg$")
+            if name and not seen[name] then
+                seen[name] = true
+                table.insert(result, name)
+            end
         end
-    end 
-    
-    return http_service:JSONEncode(Config)
+    end
+    table.sort(result)
+    config_holder.refresh_options(result)
 end
 
-function library:load_config(config_json) 
-    local config = http_service:JSONDecode(config_json)
-    
-    for _, v in config do 
-        local function_set = library.config_flags[_]
-        
-        if _ == "config_name_list" then 
-            continue 
-        end
-
-        if function_set then 
-            if type(v) == "table" and v["Transparency"] and v["Color"] then
-                function_set(hex(v["Color"]), v["Transparency"])
-            elseif type(v) == "table" and v["active"] then 
-                function_set(v)
+function library:get_config()
+    local data = {}
+    for key, value in pairs(flags) do
+        if key ~= "config_name_list" and key ~= "config_name_text" then
+            if type(value) == "table" and value.key ~= nil then
+                data[key] = {active = value.active == true, mode = value.mode, key = tostring(value.key)}
+            elseif type(value) == "table" and typeof(value.Color) == "Color3" then
+                data[key] = {Transparency = value.Transparency or 0, Color = value.Color:ToHex()}
             else
-                function_set(v)
+                data[key] = value
             end
-        end 
-    end 
-end 
+        end
+    end
+    return http_service:JSONEncode(data)
+end
+
+function library:load_config(config_json)
+    local ok, data = pcall(function() return http_service:JSONDecode(config_json) end)
+    if not ok or type(data) ~= "table" then return false, "Invalid configuration JSON" end
+    local errors = {}
+    for key, value in pairs(data) do
+        local setter = config_flags[key]
+        if setter then
+            local succeeded, err = pcall(function()
+                if type(value) == "table" and type(value.Color) == "string" then
+                    setter(hex(value.Color), math.clamp(tonumber(value.Transparency) or 0, 0, 1))
+                else
+                    setter(value)
+                end
+            end)
+            if not succeeded then table.insert(errors, tostring(key) .. ": " .. tostring(err)) end
+        end
+    end
+    if #errors > 0 then return false, table.concat(errors, "; ") end
+    return true
+end
 
 function library:round(number, float) 
-    local multiplier = 1 / (float or 1)
+    if type(number) ~= "number" then return 0 end
+    if type(float) ~= "number" or float <= 0 then float = 1 end
+    local multiplier = 1 / float
 
     return floor(number * multiplier + 0.5) / multiplier
 end 
 
 function library:apply_theme(instance, theme, property) 
-    insert(themes.utility[theme][property], instance)
+    if themes.utility[theme] and themes.utility[theme][property] then
+        insert(themes.utility[theme][property], instance)
+    end
 end
 
-function library:update_theme(theme, color)
-    for _, property in themes.utility[theme] do 
-
-        for m, object in property do 
-            if object[_] == themes.preset[theme] then 
-                object[_] = color 
-            end 
-        end 
-    end 
-
-    themes.preset[theme] = color 
-end 
+function library:update_theme(theme, new_color)
+    if typeof(new_color) ~= "Color3" or not themes.utility[theme] then return end
+    local previous = themes.preset[theme]
+    for property_name, instances in pairs(themes.utility[theme]) do
+        for index = #instances, 1, -1 do
+            local object = instances[index]
+            if not object or not object.Parent then
+                table.remove(instances, index)
+            else
+                local ok, current = pcall(function() return object[property_name] end)
+                if ok and current == previous then
+                    object[property_name] = new_color
+                end
+            end
+        end
+    end
+    themes.preset[theme] = new_color
+end
 
 function library:connection(signal, callback)
     local connection = signal:Connect(callback)
@@ -444,18 +508,17 @@ function library:connection(signal, callback)
     return connection 
 end
 
-function library:close_element(new_path) 
-    local open_element = library.current_open
-
-    if open_element and new_path ~= open_element then
-        open_element.set_visible(false)
-        open_element.open = false;
-    end 
-
-    if new_path ~= open_element then 
-        library.current_open = new_path or nil;
-    end 
-end 
+function library:close_element(new_path)
+    local previous = library.current_open
+    if previous ~= new_path then
+        library.current_open = nil
+        if previous and type(previous.set_visible) == "function" then
+            previous.open = false
+            previous.set_visible(false)
+        end
+        library.current_open = new_path
+    end
+end
 
 function library:create(instance, options)
     local ins = Instance.new(instance) 
@@ -468,7 +531,7 @@ function library:create(instance, options)
 end
 
 function library:mobile_popup_position(anchor, width, height, gap)
-    local viewport = ws.CurrentCamera.ViewportSize
+    local viewport = (ws.CurrentCamera and ws.CurrentCamera.ViewportSize) or vec2(800, 600)
     local left = clamp(anchor.AbsolutePosition.X, 6, max(6, viewport.X - width - 6))
     local top = anchor.AbsolutePosition.Y + anchor.AbsoluteSize.Y + (gap or 8)
     if top + height > viewport.Y - 8 then
@@ -604,28 +667,38 @@ function library:mobile_drag(handle, frame)
     end)
 end
 
-function library:unload_menu() 
-    if library[ "items" ] then 
-        library[ "items" ]:Destroy()
+function library:unload_menu()
+    if library.unloaded then return end
+    library.unloaded = true
+    library.current_open = nil
+    for index = #library.connections, 1, -1 do
+        local connection = library.connections[index]
+        if connection then pcall(function() connection:Disconnect() end) end
+        library.connections[index] = nil
     end
+    if library.items then library.items:Destroy() end
+    if library.other then library.other:Destroy() end
+    library.items, library.other, library.mobile_window, library.cache = nil, nil, nil, nil
+    table.clear(library.mobile_tabs)
+    table.clear(library.mobile_pages)
+    table.clear(library.mobile_columns)
+    table.clear(library.mobile_sections)
+    table.clear(library.notifications.notifs)
+    for _, group in pairs(themes.utility) do
+        for _, objects in pairs(group) do table.clear(objects) end
+    end
+end
 
-    if library[ "other" ] then 
-        library[ "other" ]:Destroy()
-    end 
-    
-    for index, connection in library.connections do 
-        connection:Disconnect() 
-        connection = nil 
-    end
-    
-    library = nil 
-end 
+library.unload = library.unload_menu
 
 function library:window(properties)
+    assert(not library.unloaded, "Millenium has been unloaded")
+    assert(not library.items, "This Millenium instance already has a window; load a new instance for another window")
+    properties = properties or {}
     local cfg = { 
         suffix = properties.suffix or properties.Suffix or "tech";
         name = properties.name or properties.Name or "nebula";
-        game_name = properties.gameInfo or properties.game_info or properties.GameInfo or "Milenium for Counter-Strike: Global Offensive";
+        game_name = properties.gameInfo or properties.game_info or properties.GameInfo or "Millenium";
         size = properties.size or properties.Size or dim2(0, 700, 0, 565);
         selected_tab;
         items = {};
@@ -649,16 +722,21 @@ function library:window(properties)
         IgnoreGuiInset = true;
     }); 
 
+    library.cache = library:create("Folder", {Name = "TabCache", Parent = library.other})
+    local initial_viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(1440, 900)
     local items = cfg.items; do
         items[ "main" ] = library:create( "Frame" , {
             Parent = library[ "items" ];
             Size = cfg.size;
             Name = "\0";
-            Position = dim2(0.5, -cfg.size.X.Offset / 2, 0.5, -cfg.size.Y.Offset / 2);
+            Position = dim_offset(
+                floor((initial_viewport.X - (initial_viewport.X * cfg.size.X.Scale + cfg.size.X.Offset)) / 2),
+                floor((initial_viewport.Y - (initial_viewport.Y * cfg.size.Y.Scale + cfg.size.Y.Offset)) / 2)
+            );
             BorderColor3 = rgb(0, 0, 0);
             BorderSizePixel = 0;
             BackgroundColor3 = rgb(14, 14, 16)
-        }); items[ "main" ].Position = dim2(0, items[ "main" ].AbsolutePosition.X, 0, items[ "main" ].AbsolutePosition.Y)
+        });
         
         library:create( "UICorner" , {
             Parent = items[ "main" ];
@@ -728,7 +806,6 @@ function library:window(properties)
         items[ "title" ] = library:create( "TextLabel" , {
             FontFace = fonts.font;
             BorderColor3 = rgb(0, 0, 0);
-            Text = name;
             Parent = items[ "side_frame" ];
             Name = "\0";
             Text = string.format('<u>%s</u><font color = "rgb(255, 255, 255)">%s</font>', cfg.name, cfg.suffix);
@@ -846,7 +923,7 @@ function library:window(properties)
             Name = "\0";
             TextColor3 = themes.preset.accent;
             BorderColor3 = rgb(0, 0, 0);
-            Text = '<font color="rgb(72, 72, 73)">32 days left, </font>' .. cfg.name .. cfg.suffix;
+            Text = cfg.name .. cfg.suffix;
             Size = dim2(1, 0, 0, 0);
             Position = dim2(0, -10, 0.5, -1);
             AnchorPoint = vec2(0, 0.5);
@@ -958,7 +1035,7 @@ function library:tab(properties)
             BorderColor3 = rgb(0, 0, 0);
             Parent = items[ "button" ];
             AnchorPoint = vec2(0, 0.5);
-            Image = "http://www.roblox.com/asset/?id=6034767608";
+            Image = cfg.icon;
             BackgroundTransparency = 1;
             Position = dim2(0, 10, 0.5, 0);
             Name = "\0";
@@ -1183,7 +1260,7 @@ function library:tab(properties)
             cfg.pages[#cfg.pages + 1] = setmetatable(data, library)
         end 
 
-        cfg.pages[1].open_page()
+        if cfg.pages[1] then cfg.pages[1].open_page() end
     end 
 
     function cfg.open_tab() 
@@ -1360,6 +1437,7 @@ function library:section(properties)
         items = {};
     };
     
+    local elements_layout
     local items = cfg.items; do 
         items[ "outline" ] = library:create( "Frame" , {
             Name = "\0";
@@ -1418,7 +1496,7 @@ function library:section(properties)
             BackgroundColor3 = rgb(255, 255, 255)
         });
         
-        local elements_layout = library:create( "UIListLayout" , {
+        elements_layout = library:create( "UIListLayout" , {
             Parent = items[ "elements" ];
             Padding = dim(0, 10);
             SortOrder = Enum.SortOrder.LayoutOrder
@@ -1578,6 +1656,10 @@ function library:section(properties)
     end;
 
     if cfg.fading_toggle then
+        items[ "toggle" ].MouseButton1Click:Connect(function()
+            cfg.default = not cfg.default
+            cfg.toggle_section(cfg.default)
+        end)
         items[ "button" ].MouseButton1Click:Connect(function()
             cfg.default = not cfg.default 
             cfg.toggle_section(cfg.default) 
@@ -1588,8 +1670,9 @@ function library:section(properties)
             library:tween(items[ "toggle_outline" ], {BackgroundColor3 = bool and themes.preset.accent or rgb(50, 50, 50)}, Enum.EasingStyle.Quad)
             library:tween(items[ "toggle_circle" ], {BackgroundColor3 = bool and rgb(255, 255, 255) or rgb(86, 86, 88), Position = bool and dim2(1, -14, 0, 2) or dim2(0, 2, 0, 2)}, Enum.EasingStyle.Quad)
             library:tween(items[ "fade" ], {BackgroundTransparency = bool and 1 or 0.8}, Enum.EasingStyle.Quad)
-        end 
-    end 
+        end
+        cfg.toggle_section(cfg.default)
+    end
 
     if library.is_mobile then
         insert(library.mobile_sections, {outline = items.outline, layout = elements_layout, size = cfg.size})
@@ -1602,14 +1685,13 @@ function library:section(properties)
 end  
 
 function library:toggle(options) 
-    local rand = math.random(1, 2) 
     local cfg = {
-        enabled = options.enabled or nil,
+        enabled = options.default == true,
         name = options.name or "Toggle",
         info = options.info or nil,
         flag = options.flag or library:next_flag(),
         
-        type = options.type and string.lower(options.type) or rand == 1 and "toggle" or "checkbox";
+        type = options.type and string.lower(options.type) or "toggle";
 
         default = options.default or false,
         folding = options.folding or false, 
@@ -1815,6 +1897,8 @@ function library:toggle(options)
     end;
     
     function cfg.set(bool)
+        bool = bool == true
+        cfg.enabled = bool
         if cfg.type == "checkbox" then 
             library:tween(items[ "tick" ], {Rotation = bool and 0 or 45, ImageTransparency = bool and 0 or 1})
             library:tween(items[ "toggle_button" ], {BackgroundColor3 = bool and themes.preset.accent or rgb(67, 67, 68)})
@@ -1825,28 +1909,36 @@ function library:toggle(options)
             library:tween(items[ "circle" ], {BackgroundColor3 = bool and rgb(255, 255, 255) or rgb(86, 86, 88), Position = bool and dim2(1, -14, 0, 2) or dim2(0, 2, 0, 2)}, Enum.EasingStyle.Quad)
         end
 
-        cfg.callback(bool)
+        safe_callback(cfg.callback, bool)
 
-        if cfg.folding then 
-            elements.Visible = bool
+        if cfg.folding and cfg.items.elements then
+            cfg.items.elements.Visible = bool
         end
 
         flags[cfg.flag] = bool
     end 
     
+    if cfg.folding then
+        items.elements = library:create("Frame", {
+            Parent = self.items.elements,
+            BackgroundTransparency = 1,
+            Size = dim2(1, 0, 0, 0),
+            AutomaticSize = Enum.AutomaticSize.Y,
+            Visible = cfg.enabled,
+        })
+        library:create("UIListLayout", {Parent = items.elements, Padding = dim(0, 6), SortOrder = Enum.SortOrder.LayoutOrder})
+    end
     if library.is_mobile then
         items.name.TextTruncate = Enum.TextTruncate.AtEnd
         items.name.AutomaticSize = Enum.AutomaticSize.Y
         items.name.Size = dim2(1, -140, 0, 20)
     end
     items[ "toggle" ].MouseButton1Click:Connect(function()
-        cfg.enabled = not cfg.enabled 
-        cfg.set(cfg.enabled)
+        cfg.set(not cfg.enabled)
     end)
 
     items[ "toggle_button" ].MouseButton1Click:Connect(function()
-        cfg.enabled = not cfg.enabled 
-        cfg.set(cfg.enabled)
+        cfg.set(not cfg.enabled)
     end)
     
     if cfg.seperator then
@@ -1881,12 +1973,18 @@ function library:slider(options)
         intervals = options.interval or options.decimal or 1,
         default = options.default or 10,
         value = options.default or 10, 
-        seperator = options.seperator or options.Seperator or true;
+        seperator = separator_option(options, true);
 
         dragging = false,
         items = {}
     } 
 
+    cfg.min = tonumber(cfg.min) or 0
+    cfg.max = tonumber(cfg.max) or 100
+    if cfg.min > cfg.max then cfg.min, cfg.max = cfg.max, cfg.min end
+    cfg.intervals = tonumber(cfg.intervals) or 1
+    if cfg.intervals <= 0 then cfg.intervals = 1 end
+    cfg.default = tonumber(cfg.default) or cfg.min
     flags[cfg.flag] = cfg.default
 
     local items = cfg.items; do
@@ -2046,13 +2144,16 @@ function library:slider(options)
     end 
 
     function cfg.set(value)
-        cfg.value = clamp(library:round(value, cfg.intervals), cfg.min, cfg.max)
-
-        library:tween(items[ "fill" ], {Size = dim2((cfg.value - cfg.min) / (cfg.max - cfg.min), cfg.value == cfg.min and 0 or -4, 0, 2)}, Enum.EasingStyle.Linear, 0.05)
+        local numeric = tonumber(value)
+        if not numeric or numeric ~= numeric or numeric == math.huge or numeric == -math.huge then return end
+        local range = cfg.max - cfg.min
+        cfg.value = clamp(cfg.min + library:round(numeric - cfg.min, cfg.intervals), cfg.min, cfg.max)
+        local fraction = range > 0 and (cfg.value - cfg.min) / range or 0
+        items["fill"].Size = dim2(fraction, cfg.value == cfg.min and 0 or -4, 0, 2)
         items[ "value" ].Text = tostring(cfg.value) .. cfg.suffix
 
         flags[cfg.flag] = cfg.value
-        cfg.callback(flags[cfg.flag])
+        safe_callback(cfg.callback, flags[cfg.flag])
     end
 
     if library.is_mobile then
@@ -2086,7 +2187,7 @@ function library:slider(options)
         end)
         library:connection(uis.InputChanged, function(input)
             if cfg.dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-                local size_x = (input.Position.X - items[ "slider" ].AbsolutePosition.X) / items[ "slider" ].AbsoluteSize.X
+                local size_x = clamp((input.Position.X - items[ "slider" ].AbsolutePosition.X) / max(1, items[ "slider" ].AbsoluteSize.X), 0, 1)
                 cfg.set(((cfg.max - cfg.min) * size_x) + cfg.min)
             end
         end)
@@ -2134,10 +2235,10 @@ function library:dropdown(options)
         ignore = options.ignore or false;
         items = {};
         y_size;
-        seperator = options.seperator or options.Seperator or true;
+        seperator = separator_option(options, true);
     }   
 
-    cfg.default = options.default or (cfg.multi and {cfg.items[1]}) or cfg.items[1] or "None"
+    cfg.default = options.default ~= nil and options.default or (cfg.multi and (cfg.options[1] and {cfg.options[1]} or {}) or cfg.options[1] or "None")
     flags[cfg.flag] = cfg.default
 
     local items = cfg.items; do 
@@ -2352,6 +2453,7 @@ function library:dropdown(options)
     end
     
     function cfg.set_visible(bool)
+        cfg.open = bool == true
         local a = bool and cfg.y_size or 0
         if library.is_mobile then
             a = min(a, max(80, ws.CurrentCamera.ViewportSize.Y * 0.53))
@@ -2360,10 +2462,16 @@ function library:dropdown(options)
             items.dropdown_holder.Position = library:mobile_popup_position(items.dropdown, width, a, 6)
         else
             library:tween(items[ "dropdown_holder" ], {Size = dim_offset(items[ "dropdown" ].AbsoluteSize.X, a)})
-            items[ "dropdown_holder" ].Position = dim2(0, items[ "dropdown" ].AbsolutePosition.X, 0, items[ "dropdown" ].AbsolutePosition.Y + 80)
+            local viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(800, 600)
+            local px = clamp(items.dropdown.AbsolutePosition.X, 6, max(6, viewport.X - items.dropdown.AbsoluteSize.X - 6))
+            local py = items.dropdown.AbsolutePosition.Y + 80
+            if py + a > viewport.Y - 8 then py = max(6, items.dropdown.AbsolutePosition.Y - a - 8) end
+            items.dropdown_holder.Position = dim_offset(px, py)
         end
-        if not (self.sanity and library.current_open == self) then 
+        if bool then
             library:close_element(cfg)
+        elseif library.current_open == cfg then
+            library.current_open = nil
         end
     end
     
@@ -2382,12 +2490,16 @@ function library:dropdown(options)
         end
 
         items[ "sub_text" ].Text = isTable and concat(selected, ", ") or selected[1] or ""
-        flags[cfg.flag] = isTable and selected or selected[1]
-        
-        cfg.callback(flags[cfg.flag]) 
+        cfg.multi_items = isTable and selected or {}
+        flags[cfg.flag] = cfg.multi and selected or selected[1]
+
+        safe_callback(cfg.callback, flags[cfg.flag]) 
     end
     
-    function cfg.refresh_options(list) 
+    function cfg.refresh_options(list)
+        list = type(list) == "table" and list or {}
+        cfg.options = list
+        local previous = flags[cfg.flag]
         cfg.y_size = 0
 
         for _, option in cfg.option_instances do 
@@ -2403,7 +2515,7 @@ function library:dropdown(options)
                 button.Size = dim2(1, -12, 0, 29)
                 cfg.y_size += 34
             else
-                cfg.y_size += button.AbsoluteSize.Y + 6
+                cfg.y_size += 29 + 6
             end
             insert(cfg.option_instances, button)
             
@@ -2426,6 +2538,7 @@ function library:dropdown(options)
                 end
             end)
         end
+        if previous ~= nil then cfg.set(previous) end
     end
 
     items[ "dropdown" ].MouseButton1Click:Connect(function()
@@ -2446,7 +2559,7 @@ function library:dropdown(options)
         });
     end 
 
-    flags[cfg.flag] = {} 
+    flags[cfg.flag] = nil
     config_flags[cfg.flag] = cfg.set
     
     cfg.refresh_options(cfg.options)
@@ -2919,8 +3032,10 @@ function library:colorpicker(options)
             library:tween(items[ "colorpicker_holder" ], {Position = items[ "colorpicker_holder" ].Position + dim_offset(0, 20)})
         end
         
-        if not (self.sanity and library.current_open == self and self.open) then 
+        if bool then
             library:close_element(cfg)
+        elseif library.current_open == cfg then
+            library.current_open = nil
         end
     end
 
@@ -2933,8 +3048,9 @@ function library:colorpicker(options)
             h, s, v = color:ToHSV()
         end
         
-        if alpha then 
-            a = alpha
+        if alpha ~= nil then
+            local number = tonumber(alpha)
+            if number and number == number then a = clamp(number, 0, 1) end
         end 
         
         local Color = hsv(h, s, v)
@@ -2962,12 +3078,12 @@ function library:colorpicker(options)
         items[ "input" ].Text = string.format("%s, %s, %s, ", library:round(color.R * 255), library:round(color.G * 255), library:round(color.B * 255))
         items[ "input" ].Text ..= library:round(1 - a, 0.01)
         
-        cfg.callback(Color, a)
+        safe_callback(cfg.callback, Color, a)
     end
     
     function cfg.update_color(input_position)
         local cursor = input_position or uis:GetMouseLocation()
-        local offset = library.is_mobile and cursor or vec2(cursor.X, cursor.Y - gui_offset) 
+        local offset = cursor 
 
         if dragging_sat then	
             s = math.clamp((offset - items["sat"].AbsolutePosition).X / items["sat"].AbsoluteSize.X, 0, 1)
@@ -3013,7 +3129,7 @@ function library:colorpicker(options)
             end
         end)
     else
-        uis.InputChanged:Connect(function(input)
+        library:connection(uis.InputChanged, function(input)
             if (dragging_sat or dragging_hue or dragging_alpha) and input.UserInputType == Enum.UserInputType.MouseMovement then
                 cfg.update_color()
             end
@@ -3035,7 +3151,7 @@ function library:colorpicker(options)
         local r, g, b, a = library:convert(text)
         
         if r and g and b and a then 
-            cfg.set(rgb(r, g, b), 1 - a)
+            cfg.set(rgb(clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255)), 1 - clamp(a, 0, 1))
         end 
     end)
 
@@ -3060,7 +3176,7 @@ function library:textbox(options)
         default = options.default or "",
         flag = options.flag or library:next_flag(),
         callback = options.callback or function() end,
-        visible = options.visible or true,
+        visible = options.visible ~= false,
         items = {};
     }
 
@@ -3068,7 +3184,6 @@ function library:textbox(options)
 
     local items = cfg.items; do 
         items[ "textbox" ] = library:create( "TextButton" , {
-            LayoutOrder = -1;
             FontFace = fonts.font;
             TextColor3 = rgb(0, 0, 0);
             BorderColor3 = rgb(0, 0, 0);
@@ -3124,6 +3239,7 @@ function library:textbox(options)
         });
         
         items[ "input" ] = library:create( "TextBox" , {
+            PlaceholderText = cfg.placeholder;
             FontFace = fonts.font;
             Text = "";
             Parent = items[ "right_components" ];
@@ -3154,12 +3270,12 @@ function library:textbox(options)
         });
     end 
     
-    function cfg.set(text) 
+    function cfg.set(text)
+        text = tostring(text or "")
+        if flags[cfg.flag] == text and items.input.Text == text then return end
         flags[cfg.flag] = text
-
-        items[ "input" ].Text = text
-
-        cfg.callback(text)
+        if items.input.Text ~= text then items.input.Text = text end
+        safe_callback(cfg.callback, text)
     end 
     
     items[ "input" ]:GetPropertyChangedSignal("Text"):Connect(function()
@@ -3178,6 +3294,7 @@ function library:textbox(options)
         cfg.set(cfg.default) 
     end
 
+    items.textbox.Visible = cfg.visible
     config_flags[cfg.flag] = cfg.set
 
     return setmetatable(cfg, library)
@@ -3350,7 +3467,7 @@ function library:keybind(options)
         
         local options = {"Hold", "Toggle", "Always"}
         
-        cfg.y_size = 20
+        cfg.y_size = 14
         for _, option in options do                        
             local name = library:create( "TextButton" , {
                 FontFace = fonts.font;
@@ -3369,7 +3486,7 @@ function library:keybind(options)
             }); cfg.hold_instances[option] = name
             library:apply_theme(name, "accent", "TextColor3")
             
-            cfg.y_size += name.AbsoluteSize.Y
+            cfg.y_size += 25
 
             library:create( "UIPadding" , {
                 Parent = name;
@@ -3389,73 +3506,52 @@ function library:keybind(options)
     end 
     
     function cfg.modify_mode_color(path)
-        for _, v in cfg.hold_instances do 
-            v.TextColor3 = rgb(72, 72, 72)
-        end 
-
-        cfg.hold_instances[path].TextColor3 = themes.preset.accent
+        for mode, control in pairs(cfg.hold_instances) do
+            control.TextColor3 = mode == path and themes.preset.accent or rgb(72, 72, 72)
+        end
     end
 
-    function cfg.set_mode(mode) 
-        cfg.mode = mode 
-
-        if mode == "Always" then
-            cfg.set(true)
-        elseif mode == "Hold" then
-            cfg.set(false)
-        end
-
-        flags[cfg.flag]["mode"] = mode
+    function cfg.set_mode(mode)
+        if mode ~= "Toggle" and mode ~= "Hold" and mode ~= "Always" then return end
+        cfg.mode = mode
+        cfg.active = mode == "Always" and true or (mode == "Hold" and false or cfg.active)
         cfg.modify_mode_color(mode)
-    end 
+        cfg.set(cfg.active)
+    end
 
     function cfg.set(input)
-        if type(input) == "boolean" then 
-            cfg.active = input
-
-            if cfg.mode == "Always" then 
-                cfg.active = true
+        if type(input) == "boolean" then
+            cfg.active = cfg.mode == "Always" or input
+        elseif typeof(input) == "EnumItem" then
+            cfg.key = input == Enum.KeyCode.Escape and "NONE" or input
+        elseif type(input) == "string" then
+            if input == "Toggle" or input == "Hold" or input == "Always" then
+                cfg.mode = input
+                if input == "Always" then cfg.active = true end
+                if input == "Hold" then cfg.active = false end
+            elseif input == "NONE" then
+                cfg.key = "NONE"
+            else
+                local resolved = library:convert_enum(input)
+                if resolved then cfg.key = resolved end
             end
-        elseif tostring(input):find("Enum") then 
-            input = input.Name == "Escape" and "NONE" or input
-            
-            cfg.key = input or "NONE"	
-        elseif find({"Toggle", "Hold", "Always"}, input) then 
-            if input == "Always" then 
-                cfg.active = true 
-            end 
-
-            cfg.mode = input
-            cfg.set_mode(cfg.mode) 
-        elseif type(input) == "table" then 
-            input.key = type(input.key) == "string" and input.key ~= "NONE" and library:convert_enum(input.key) or input.key
-            input.key = input.key == Enum.KeyCode.Escape and "NONE" or input.key
-
-            cfg.key = input.key or "NONE"
-            cfg.mode = input.mode or "Toggle"
-
-            if input.active then
-                cfg.active = input.active
-            end
-
-            cfg.set_mode(cfg.mode) 
-        end 
-
-        cfg.callback(cfg.active)
-
-        local text = tostring(cfg.key) ~= "Enums" and (keys[cfg.key] or tostring(cfg.key):gsub("Enum.", "")) or nil
-        local __text = text and (tostring(text):gsub("KeyCode.", ""):gsub("UserInputType.", ""))
-        
-        items[ "key" ].Text = __text
-
-        flags[cfg.flag] = {
-            mode = cfg.mode,
-            key = cfg.key, 
-            active = cfg.active
-        }
+        elseif type(input) == "table" then
+            cfg.mode = (input.mode == "Toggle" or input.mode == "Hold" or input.mode == "Always") and input.mode or "Toggle"
+            local resolved = type(input.key) == "string" and library:convert_enum(input.key) or input.key
+            cfg.key = (input.key == "NONE" and "NONE") or resolved or "NONE"
+            if input.active ~= nil then cfg.active = input.active == true end
+            if cfg.mode == "Always" then cfg.active = true end
+            if cfg.mode == "Hold" then cfg.active = false end
+        end
+        cfg.modify_mode_color(cfg.mode)
+        flags[cfg.flag] = {mode = cfg.mode, key = cfg.key or "NONE", active = cfg.active}
+        local key_string = keys[cfg.key] or (typeof(cfg.key) == "EnumItem" and cfg.key.Name) or "NONE"
+        items.key.Text = tostring(key_string)
+        safe_callback(cfg.callback, cfg.active)
     end
 
     function cfg.set_visible(bool)
+        cfg.open = bool == true
         local size = bool and cfg.y_size or 0
         library:tween(items[ "dropdown" ], {Size = dim_offset(items[ "keybind_holder" ].AbsoluteSize.X, size)})
 
@@ -3463,7 +3559,16 @@ function library:keybind(options)
             local width = max(90, items.keybind_holder.AbsoluteSize.X)
             items.dropdown.Position = library:mobile_popup_position(items.keybind_holder, width, max(100, size), 6)
         else
-            items[ "dropdown" ].Position = dim_offset(items[ "keybind_holder" ].AbsolutePosition.X, items[ "keybind_holder" ].AbsolutePosition.Y + items[ "keybind_holder" ].AbsoluteSize.Y + 60)
+            local viewport = ws.CurrentCamera and ws.CurrentCamera.ViewportSize or vec2(800, 600)
+            local x = clamp(items.keybind_holder.AbsolutePosition.X, 6, max(6, viewport.X - items.keybind_holder.AbsoluteSize.X - 6))
+            local y = items.keybind_holder.AbsolutePosition.Y + items.keybind_holder.AbsoluteSize.Y + 60
+            if y + size > viewport.Y - 8 then y = max(6, items.keybind_holder.AbsolutePosition.Y - size - 8) end
+            items.dropdown.Position = dim_offset(x, y)
+        end
+        if bool then
+            library:close_element(cfg)
+        elseif library.current_open == cfg then
+            library.current_open = nil
         end
     end
 
@@ -3473,14 +3578,13 @@ function library:keybind(options)
             cfg.set_visible(cfg.open)
             return
         end
-        task.wait()
-        items[ "key" ].Text = "..."	
-
-        cfg.binding = library:connection(uis.InputBegan, function(keycode, game_event)  
-            cfg.set(keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType)
-            
-            cfg.binding:Disconnect() 
-            cfg.binding = nil
+        if cfg.binding then cfg.binding:Disconnect() end
+        items.key.Text = "..."
+        cfg.binding = library:connection(uis.InputBegan, function(keycode)
+            local next_key = keycode.KeyCode ~= Enum.KeyCode.Unknown and keycode.KeyCode or keycode.UserInputType
+            cfg.capture_ignored_input = keycode
+            if cfg.binding then cfg.binding:Disconnect(); cfg.binding = nil end
+            cfg.set(next_key)
         end)
     end)
 
@@ -3491,7 +3595,7 @@ function library:keybind(options)
     end)
 
     library:connection(uis.InputBegan, function(input, game_event) 
-        if not game_event then
+        if not game_event and not cfg.binding and input ~= cfg.capture_ignored_input then
             local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
 
             if selected_key == cfg.key then 
@@ -3506,8 +3610,8 @@ function library:keybind(options)
     end)    
 
     library:connection(uis.InputEnded, function(input, game_event) 
-        if game_event then 
-            return 
+        if game_event or cfg.binding then
+            return
         end 
 
         local selected_key = input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode or input.UserInputType
@@ -3578,11 +3682,11 @@ function library:button(options)
             AutomaticSize = Enum.AutomaticSize.XY;
             TextSize = 14;
             BackgroundColor3 = rgb(255, 255, 255)
-        }); library:apply_theme(items[ "name" ], "accent", "BackgroundColor3");                            
+        }); library:apply_theme(items[ "name" ], "accent", "TextColor3");                            
     end 
 
     items[ "button" ].MouseButton1Click:Connect(function()
-        cfg.callback()
+        safe_callback(cfg.callback)
 
         items[ "name" ].TextColor3 = themes.preset.accent 
         library:tween(items[ "name" ], {TextColor3 = rgb(245, 245, 245)})
@@ -3654,11 +3758,6 @@ function library:settings(options)
             CornerRadius = dim(0, 7)
         });
         
-        library:create( "UICorner" , {
-            Parent = items[ "fade" ];
-            CornerRadius = dim(0, 7)
-        });
-        
         items[ "tick" ] = library:create( "ImageButton" , {
             Image = "rbxassetid://128797200442698";
             Name = "\0";
@@ -3678,7 +3777,11 @@ function library:settings(options)
         else
             items[ "outline" ].Position = dim_offset(items[ "tick" ].AbsolutePosition.X, items[ "tick" ].AbsolutePosition.Y + 90)
         end
-        library:close_element(cfg)
+        if bool then
+            library:close_element(cfg)
+        elseif library.current_open == cfg then
+            library.current_open = nil
+        end
     end
     
     items[ "tick" ].MouseButton1Click:Connect(function()
@@ -3725,134 +3828,138 @@ function library:list(properties)
         });
     end 
 
+    function cfg.set(value)
+        local found = false
+        for _, button in ipairs(cfg.data_store) do
+            local label = button:FindFirstChildOfClass("TextLabel")
+            if label then
+                local match = label.Text == value
+                label.TextColor3 = match and rgb(245, 245, 245) or rgb(72, 72, 73)
+                if match then cfg.current_element = label; found = true end
+            end
+        end
+        if not found then cfg.current_element = nil end
+        flags[cfg.flag] = found and value or nil
+        if found then safe_callback(cfg.callback, value) end
+    end
+
     function cfg.refresh_options(options_to_refresh)
-        for _,option in cfg.data_store do 
-            option:Destroy()
-        end
-
-        for _, option_data in options_to_refresh do
-            local button = library:create( "TextButton" , {
-                FontFace = fonts.small;
-                TextColor3 = rgb(0, 0, 0);
-                BorderColor3 = rgb(0, 0, 0);
-                Text = "";
-                AutoButtonColor = false;
-                AnchorPoint = vec2(1, 0);
-                Parent = items[ "list" ];
-                Name = "\0";
-                Position = dim2(1, 0, 0, 0);
-                Size = dim2(1, 0, 0, 30);
-                BorderSizePixel = 0;
-                TextSize = 14;
-                BackgroundColor3 = rgb(33, 33, 35)
-            }); cfg.data_store[#cfg.data_store + 1] = button;
-
-            local name = library:create( "TextLabel" , {
-                FontFace = fonts.font;
-                TextColor3 = rgb(72, 72, 73);
-                BorderColor3 = rgb(0, 0, 0);
-                Text = option_data;
-                Parent = button;
-                Name = "\0";
-                BackgroundTransparency = 1;
-                Size = dim2(1, 0, 1, 0);
-                BorderSizePixel = 0;
-                AutomaticSize = Enum.AutomaticSize.XY;
-                TextSize = 14;
-                BackgroundColor3 = rgb(255, 255, 255)
-            });
-            
-            library:create( "UICorner" , {
-                Parent = button;
-                CornerRadius = dim(0, 3)
-            });     
-
-            button.MouseButton1Click:Connect(function()
-                local current = cfg.current_element 
-                if current and current ~= name then 
-                    library:tween(current, {TextColor3 = rgb(72, 72, 72)})
-                end
-
-                flags[cfg.flag] = option_data
-                cfg.callback(option_data)
-                library:tween(name, {TextColor3 = rgb(245, 245, 245)})
-                cfg.current_element = name
-            end)
-
+        local previous = flags[cfg.flag]
+        for _, button in ipairs(cfg.data_store) do button:Destroy() end
+        table.clear(cfg.data_store)
+        cfg.current_element = nil
+        cfg.options = type(options_to_refresh) == "table" and options_to_refresh or {}
+        for _, option_data in ipairs(cfg.options) do
+            local button = library:create("TextButton", {
+                FontFace = fonts.small, Text = "", AutoButtonColor = false,
+                Parent = items.list, Size = dim2(1, 0, 0, 30), BorderSizePixel = 0,
+                BackgroundColor3 = rgb(33, 33, 35),
+            })
+            table.insert(cfg.data_store, button)
+            local name = library:create("TextLabel", {
+                FontFace = fonts.font, Text = tostring(option_data), Parent = button,
+                TextColor3 = rgb(72, 72, 73), BorderSizePixel = 0,
+                BackgroundTransparency = 1, Size = dim2(1, 0, 1, 0), TextSize = 14,
+            })
+            library:create("UICorner", {Parent = button, CornerRadius = dim(0, 3)})
+            button.MouseButton1Click:Connect(function() cfg.set(name.Text) end)
             name.MouseEnter:Connect(function()
-                if cfg.current_element == name then 
-                    return 
-                end 
-
-                library:tween(name, {TextColor3 = rgb(140, 140, 140)})
+                if cfg.current_element ~= name then name.TextColor3 = rgb(140, 140, 140) end
             end)
-
             name.MouseLeave:Connect(function()
-                if cfg.current_element == name then 
-                    return 
-                end 
-
-                library:tween(name, {TextColor3 = rgb(72, 72, 72)})
+                if cfg.current_element ~= name then name.TextColor3 = rgb(72, 72, 73) end
             end)
         end
+        if previous then cfg.set(previous) end
     end
 
     cfg.refresh_options(cfg.options)
-
+    config_flags[cfg.flag] = cfg.set
     return setmetatable(cfg, library)
 end 
 
-function library:init_config(window) 
+function library:init_config(window)
     window:seperator({name = "Settings"})
     local main = window:tab({name = "Configs", tabs = {"Main"}})
-    
-    local column = main:column({})
-    local section = column:section({name = "Configs", size = 1, default = true, icon = "rbxassetid://139628202576511"})
-    config_holder = section:list({options = {"Report", "This", "Error", "To", "Finobe"}, callback = function(option) end, flag = "config_name_list"}); library:update_config_list()
-    
-    local column = main:column({})
-    local section = column:section({name = "Settings", side = "right", size = 1, default = true, icon = "rbxassetid://129380150574313"})
+    local left = main:column({})
+    local list_section = left:section({name = "Configs", size = 1, default = true, icon = "rbxassetid://139628202576511"})
+    config_holder = list_section:list({options = {}, flag = "config_name_list"})
+
+    local right = main:column({})
+    local section = right:section({name = "Settings", side = "right", size = 1, default = true, icon = "rbxassetid://129380150574313"})
     section:textbox({name = "Config name:", flag = "config_name_text"})
-    section:button({name = "Save", callback = function() writefile(library.directory .. "/configs/" .. flags["config_name_text"] or flags["config_name_list"] .. ".cfg", library:get_config()) library:update_config_list() notifications:create_notification({name = "Configs", info = "Saved config to:\n" .. flags["config_name_list"] or flags["config_name_text"]}) end}) 
-    section:button({name = "Load", callback = function() library:load_config(readfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg"))  library:update_config_list() notifications:create_notification({name = "Configs", info = "Loaded config:\n" .. flags["config_name_list"]}) end})
-    section:button({name = "Delete", callback = function() delfile(library.directory .. "/configs/" .. flags["config_name_list"] .. ".cfg")  library:update_config_list() notifications:create_notification({name = "Configs", info = "Deleted config:\n" .. flags["config_name_list"]}) end})
-    section:colorpicker({name = "Menu Accent", callback = function(color, alpha) library:update_theme("accent", color) end, color = themes.preset.accent})
-    section:keybind({name = "Menu Bind", callback = function(bool) window.toggle_menu(bool) end, default = true})
+
+    local function notice(message)
+        if not library.unloaded then notifications:create_notification({name = "Configs", info = message}) end
+    end
+    section:button({name = "Save", callback = function()
+        local selected = config_name(flags.config_name_text) or config_name(flags.config_name_list)
+        local path = config_path(selected)
+        if not path then notice("Enter a configuration name first") return end
+        if not ensure_folder(library.directory) or not ensure_folder(library.directory .. "/configs") then
+            notice("Cannot create configuration folder") return
+        end
+        local ok, data = pcall(function() return library:get_config() end)
+        if not ok then notice("Cannot encode config: " .. tostring(data)) return end
+        local wrote, err = write_file(path, data)
+        if not wrote then notice("Save failed: " .. tostring(err)) return end
+        library:update_config_list()
+        notice("Saved config: " .. selected)
+    end})
+    section:button({name = "Load", callback = function()
+        local selected = config_name(flags.config_name_list) or config_name(flags.config_name_text)
+        local path = config_path(selected)
+        local content = path and read_file(path)
+        if not content then notice("Select an existing configuration") return end
+        local ok, err = library:load_config(content)
+        notice(ok and ("Loaded config: " .. selected) or ("Load failed: " .. tostring(err)))
+    end})
+    section:button({name = "Delete", callback = function()
+        local selected = config_name(flags.config_name_list) or config_name(flags.config_name_text)
+        local path = config_path(selected)
+        if not path or not has_file(path) or type(delfile) ~= "function" then
+            notice("Select an existing configuration") return
+        end
+        local ok, err = pcall(delfile, path)
+        if not ok then notice("Delete failed: " .. tostring(err)) return end
+        library:update_config_list()
+        notice("Deleted config: " .. selected)
+    end})
+    section:colorpicker({name = "Menu Accent", callback = function(accent) library:update_theme("accent", accent) end, color = themes.preset.accent})
+    section:keybind({name = "Menu Bind", callback = function(enabled) window.toggle_menu(enabled) end, default = true})
+    library:update_config_list()
 end
 
-function notifications:refresh_notifs() 
+function notifications:refresh_notifs()
     local offset = 50
-
-    for i, v in notifications.notifs do
-        local Position = vec2(20, offset)
-        library:tween(v, {Position = dim_offset(Position.X, Position.Y)}, Enum.EasingStyle.Quad, 0.4)
-        offset += (v.AbsoluteSize.Y + 10)
+    for _, frame in ipairs(self.notifs) do
+        if frame and frame.Parent then
+            library:tween(frame, {Position = dim_offset(20, offset)}, Enum.EasingStyle.Quad, 0.3)
+            offset += max(frame.AbsoluteSize.Y, 53) + 10
+        end
     end
-
     return offset
 end
 
 function notifications:fade(path, is_fading)
-    local fading = is_fading and 1 or 0 
-    
-    library:tween(path, {BackgroundTransparency = fading}, Enum.EasingStyle.Quad, 1)
-
-    for _, instance in path:GetDescendants() do 
-        if not instance:IsA("GuiObject") then 
-            if instance:IsA("UIStroke") then
-                library:tween(instance, {Transparency = fading}, Enum.EasingStyle.Quad, 1)
+    if library.unloaded or not path or not path.Parent then return end
+    local opacity = is_fading and 1 or 0
+    library:tween(path, {BackgroundTransparency = opacity}, Enum.EasingStyle.Quad, 0.3)
+    for _, instance in ipairs(path:GetDescendants()) do
+        if instance:IsA("UIStroke") then
+            library:tween(instance, {Transparency = opacity}, Enum.EasingStyle.Quad, 0.3)
+        elseif instance:IsA("TextLabel") or instance:IsA("TextButton") or instance:IsA("TextBox") then
+            library:tween(instance, {TextTransparency = opacity}, Enum.EasingStyle.Quad, 0.3)
+        elseif instance:IsA("Frame") and instance.Name ~= "notification" then
+            local desired = instance:GetAttribute("MilleniumBaseTransparency")
+            if desired == nil then
+                desired = instance.BackgroundTransparency
+                instance:SetAttribute("MilleniumBaseTransparency", desired)
             end
-
-            continue
-        end 
-
-        if instance:IsA("TextLabel") then
-            library:tween(instance, {TextTransparency = fading})
-        elseif instance:IsA("Frame") then
-            library:tween(instance, {BackgroundTransparency = instance.Transparency and 0.6 and is_fading and 1 or 0.6}, Enum.EasingStyle.Quad, 1)
+            library:tween(instance, {BackgroundTransparency = is_fading and 1 or desired}, Enum.EasingStyle.Quad, 0.3)
         end
     end
-end 
+end
 
 function notifications:create_notification(options)
     local cfg = {
@@ -3949,8 +4056,7 @@ function notifications:create_notification(options)
         });
     end
     
-    local index = #notifications.notifs + 1
-    notifications.notifs[index] = items[ "notification" ]
+    table.insert(notifications.notifs, items.notification)
 
     notifications:fade(items[ "notification" ], false)
     
@@ -3964,15 +4070,17 @@ function notifications:create_notification(options)
     task.spawn(function()
         task.wait(cfg.lifetime)
         
-        notifications.notifs[index] = nil
-        
+        if library.unloaded or not items.notification.Parent then return end
+        local index = table.find(notifications.notifs, items.notification)
+        if index then table.remove(notifications.notifs, index) end
+        notifications:refresh_notifs()
         notifications:fade(items[ "notification" ], true)
         
         library:tween(items[ "notification" ], {AnchorPoint = vec2(1, 0)}, Enum.EasingStyle.Quad, 1)
 
         task.wait(1)
 
-        items[ "notification" ]:Destroy() 
+        if items.notification.Parent then items.notification:Destroy() end 
     end)
 end
 
